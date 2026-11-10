@@ -151,6 +151,24 @@
   });
 </script>
 
+{#snippet emojiIcon()}
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    class="size-4"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="10" />
+    <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+    <line x1="9" y1="9" x2="9.01" y2="9" />
+    <line x1="15" y1="9" x2="15.01" y2="9" />
+  </svg>
+{/snippet}
+
 <form
   class="relative flex flex-col rounded-2xl border border-hairline bg-panel px-2 py-1.5"
   onsubmit={handleSubmit}
@@ -283,6 +301,15 @@
         </svg>
       {/if}
     </button>
+
+    <EmojiPickerPopover
+      bind:open={emojiPickerOpen}
+      icon={emojiIcon}
+      buttonClass="btn btn-sm shrink-0"
+      anchor={emojiPickerAnchor}
+      pickerCustomEmoji={pickerCustomEmoji}
+      onSelect={insertEmoji}
+    />
   </div>
 
   {#if draftShortcodeSuggestions.length > 0 && suggestionPopupPosition}
@@ -293,16 +320,7 @@
       onApply={applyShortcodeSuggestion}
     />
   {/if}
-
-  <EmojiPickerPopover
-    bind:open={emojiPickerOpen}
-    hideButton
-    anchor={emojiPickerAnchor}
-    pickerCustomEmoji={pickerCustomEmoji}
-    onSelect={insertEmoji}
-  />
 </form>
-
 <style>
   #message-draft :global(.composer-editor) {
     font-size: 1em;

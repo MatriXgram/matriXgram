@@ -16,8 +16,10 @@
     MessageHeader,
     MessageReactions,
     MessageSendState,
+    ReactionQuickBar,
     ReplyQuote,
   } from ".";
+  import { EmojiPickerPopover } from "../composer-emoji";
 
   interface Props {
     message: TimelineMessage;
@@ -60,6 +62,11 @@
   let isOptionsOpen = $state(false);
   let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
   let optionsMode = $state<"reply" | "copy-image">("reply");
+
+  /// The quick reaction bar, shown on a right click.
+  let reactionBarPosition = $state<{ x: number; y: number } | null>(null);
+  let reactionPickerOpen = $state(false);
+  let reactionPickerAnchor = $state<{ x: number; y: number } | null>(null);
 
   const isOwn = $derived(Boolean(currentUserId) && message.sender === currentUserId);
   const primaryActionLabel = $derived(optionsMode === "copy-image" ? "Copy Image" : "Reply");
@@ -120,6 +127,42 @@
     isOptionsOpen = true;
   }
 
+  /// A right click opens the quick reaction bar, the way Telegram does.
+  function openReactionBar(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    isOptionsOpen = false;
+    contextMenuPosition = null;
+    reactionPickerOpen = false;
+    reactionPickerAnchor = null;
+
+    // Keep the bar on screen: it is placed above the cursor and shifted left
+    // when it would run past the window edge.
+    const barWidth = 250;
+    const barHeight = 44;
+
+    reactionBarPosition = {
+      x: Math.max(8, Math.min(event.clientX - barWidth / 2, window.innerWidth - barWidth - 8)),
+      y: Math.max(8, event.clientY - barHeight - 8),
+    };
+  }
+
+  function openFullReactionPicker() {
+    const position = reactionBarPosition ?? { x: 120, y: 120 };
+    reactionBarPosition = null;
+    reactionPickerAnchor = { x: position.x, y: position.y };
+    reactionPickerOpen = true;
+  }
+
+  function toggleReactionFromBar(_message: TimelineMessage, key: string) {
+    if (!message.eventId) {
+      return;
+    }
+
+    onToggleReaction?.(message, key);
+  }
+
   function openImageOptionsMenuFromContext(event: MouseEvent) {
     optionsMode = "copy-image";
     contextMenuPosition = { x: event.clientX, y: event.clientY };
@@ -155,7 +198,7 @@
   class="message-row relative flex w-full items-end gap-2 px-3 py-[1px]"
   class:justify-end={isOwn}
   data-message-event-id={message.eventId ?? undefined}
-  oncontextmenu={openOptionsMenuFromContext}
+  oncontextmenu={openReactionBar}
 >
   <div class="flex w-8 shrink-0 justify-center self-end">
     {#if !isOwn && !grouped}
@@ -252,4 +295,20 @@
       </button>
     </div>
   {/if}
+
+  <ReactionQuickBar
+    {message}
+    position={reactionBarPosition}
+    onToggleReaction={toggleReactionFromBar}
+    onExpand={openFullReactionPicker}
+    onClose={() => (reactionBarPosition = null)}
+  />
+
+  <EmojiPickerPopover
+    bind:open={reactionPickerOpen}
+    hideButton
+    anchor={reactionPickerAnchor}
+    {pickerCustomEmoji}
+    onSelect={(token) => toggleReactionFromBar(message, token)}
+  />
 </li>

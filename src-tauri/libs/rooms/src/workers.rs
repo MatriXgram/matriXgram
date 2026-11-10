@@ -504,17 +504,30 @@ async fn run_refresh_pass(
         }
     };
 
+    // Whether the room that is currently open changed during this pass. A new
+    // message changes the room summary (last message, unread count), so this
+    // is how the open timeline learns about messages sent by another client.
+    let mut selected_room_changed = false;
+
     for (room_id, chat) in &current_snapshot {
         match previous_snapshot.get(room_id) {
             None => {
                 let payload = serde_json::to_value(chat)
                     .map_err(|error| format!("Failed to serialize room: {error}"))?;
                 let _ = event_sink.emit(event_paths::ROOM_ADDED, &payload);
+
+                if selected_room_id.as_deref() == Some(room_id.as_str()) {
+                    selected_room_changed = true;
+                }
             }
             Some(previous) if previous != chat => {
                 let payload = serde_json::to_value(chat)
                     .map_err(|error| format!("Failed to serialize room: {error}"))?;
                 let _ = event_sink.emit(event_paths::ROOM_UPDATED, &payload);
+
+                if selected_room_id.as_deref() == Some(room_id.as_str()) {
+                    selected_room_changed = true;
+                }
             }
             Some(_) => {}
         }
@@ -530,7 +543,7 @@ async fn run_refresh_pass(
         }
     }
 
-    if include_selected_messages {
+    if include_selected_messages || selected_room_changed {
         if let Some(room_id) = selected_room_id {
             if current_snapshot.contains_key(&room_id) {
                 if let Ok(response) =

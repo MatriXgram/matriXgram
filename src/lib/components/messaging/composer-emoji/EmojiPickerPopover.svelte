@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { Snippet } from "svelte";
 
   import {
     applyCustomEmojiConfig,
@@ -25,6 +26,8 @@
     /** Screen position the picker is anchored to, in pixels. */
     anchor?: { x: number; y: number } | null;
     buttonText?: string;
+    /// Icon shown on the trigger button instead of a text label.
+    icon?: Snippet;
     buttonClass?: string;
     popoverClass?: string;
     pickerStyle?: string;
@@ -38,6 +41,7 @@
     hideButton = false,
     anchor = null,
     buttonText = "Emoji",
+    icon,
     buttonClass = "btn btn-sm",
     popoverClass = "rounded-xl border border-hairline bg-panel p-2 shadow-lg",
     pickerStyle = "width: 100%; height: 22rem; --emoji-size: 2rem; --category-emoji-size: 1.15rem;",
@@ -115,7 +119,11 @@
       }}
       {disabled}
     >
-      {buttonText}
+      {#if icon}
+        {@render icon()}
+      {:else}
+        {buttonText}
+      {/if}
     </button>
   </div>
 {/if}

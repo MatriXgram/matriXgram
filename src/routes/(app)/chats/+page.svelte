@@ -73,6 +73,7 @@
   const MESSAGE_LOAD_TIMEOUT_MS = 30000;
 
   let pendingPinToBottomRoomId = "";
+  let pendingRoomMessages: MatrixSelectedRoomMessagesEvent | null = null;
 
   let previousSelectedRoomId = "";
   let lastScrollTop = 0;
@@ -273,6 +274,10 @@
       activeLoadKind = null;
       streamMessageCount = 0;
 
+      // A room update that arrived while the timeline was streaming is
+      // applied now that the stream is done.
+      flushPendingRoomMessages();
+
   // A fresh room always lands on the newest message, wherever the previous
   // room was scrolled to.
   if (payload.loadKind === "initial") {
@@ -309,9 +314,27 @@
     }
 
     if (loadingMessages) {
+      // The timeline is still being streamed. The payload is kept and applied
+      // when the stream finishes, otherwise the messages it carries would be
+      // dropped and the room would keep showing an older page.
+      pendingRoomMessages = payload;
       return;
     }
 
+    applySelectedRoomMessagesNow(payload);
+  }
+
+  function flushPendingRoomMessages() {
+    if (loadingMessages || !pendingRoomMessages) {
+      return;
+    }
+
+    const payload = pendingRoomMessages;
+    pendingRoomMessages = null;
+    applySelectedRoomMessagesNow(payload);
+  }
+
+  function applySelectedRoomMessagesNow(payload: MatrixSelectedRoomMessagesEvent) {
     const indexed = payload.messages
       .map((message, index) => ({ message, index }))
       .filter(({ message }) => Boolean(message.eventId));
@@ -943,6 +966,7 @@
     activeMediaFilePath = "";
     mediaTranscodeProgress = null;
     replyToMessage = null;
+    pendingRoomMessages = null;
     messages = [];
     nextFrom = null;
   }

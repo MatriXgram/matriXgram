@@ -145,14 +145,16 @@ impl<'a> ChatMessageStreamer<'a> {
     }
 
     fn enqueue_room_snapshot_refresh(&self, room_id: &str) {
-        // Sidebar-only: the room list still has to be reconciled, but a cache
-        // hit must not trigger a message re-fetch on top of the emission it
-        // has just produced.
+        // The cached page is only as fresh as the fetch that wrote it, so it
+        // does not contain the messages that were sent since. The worker
+        // re-fetches the newest page and emits it; the frontend appends what it
+        // has not seen yet. Without this, a message sent after the cache was
+        // written would never show up in that room again.
         let _ = self
             .room_update_trigger_state()
             .enqueue(RoomRefreshTrigger {
                 selected_room_id: Some(room_id.to_string()),
-                include_selected_messages: false,
+                include_selected_messages: true,
             });
     }
 
