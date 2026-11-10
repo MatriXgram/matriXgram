@@ -116,6 +116,7 @@ pub async fn send_room_message_from_client(
     body: &str,
     picker_custom_emoji: &[MatrixPickerCustomEmoji],
     in_reply_to_event_id_raw: Option<&str>,
+    formatted_body_override: Option<&str>,
 ) -> Result<String, String> {
     let trimmed_body = body.trim();
     if trimmed_body.is_empty() {
@@ -128,8 +129,15 @@ pub async fn send_room_message_from_client(
         .get_room(&room_id)
         .ok_or_else(|| String::from("Room is not available in current session"))?;
 
-    let formatted_body =
-        formatting::build_formatted_body_from_custom_emoji(trimmed_body, picker_custom_emoji);
+    let formatted_body = match formatted_body_override {
+        // A forwarded message keeps its formatting. The HTML comes from the
+        // client, so it is sanitised here, at the same trust boundary as a
+        // formatted body that arrives with a sync.
+        Some(raw) => protocol::sanitize::sanitize_formatted_body(raw),
+        None => {
+            formatting::build_formatted_body_from_custom_emoji(trimmed_body, picker_custom_emoji)
+        }
+    };
 
     let mut content = if let Some(formatted_body) = formatted_body.as_deref() {
         RoomMessageEventContent::text_html(trimmed_body, formatted_body)

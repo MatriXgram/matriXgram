@@ -36,6 +36,7 @@
   import ForwardRoomPicker from "$lib/components/messaging/forward/ForwardRoomPicker.svelte";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
+  import { stripMxReplyBlock } from "$lib/components/messaging/shared";
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
@@ -970,6 +971,12 @@
         roomId,
         body: message.body,
         inReplyToEventId: null,
+        // Forwarding keeps the formatting of the original message. The reply
+        // quote block is left out: it belongs to the conversation the
+        // message came from.
+        formattedBody: message.formattedBody
+          ? stripMxReplyBlock(message.formattedBody)
+          : null,
       });
 
       if (response.eventId) {

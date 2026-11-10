@@ -63,21 +63,20 @@
   }: Props = $props();
 
   let optionsButtonElement: HTMLButtonElement | null = $state(null);
-  let isOptionsOpen = $state(false);
 
   /// The quick reaction bar, shown on a right click.
   let reactionBarPosition = $state<{ x: number; y: number } | null>(null);
   let reactionPickerOpen = $state(false);
   let reactionPickerAnchor = $state<{ x: number; y: number } | null>(null);
 
-  /// The action list (reply, forward, copy) below the reaction bar.
+  /// The action list (reply, forward, copy) below the reaction bar. Its
+  /// position is the single source of truth for "the menu is open": the
+  /// outside click handler and the button toggle both go through it.
   let actionMenuPosition = $state<{ x: number; y: number } | null>(null);
 
   const isOwn = $derived(Boolean(currentUserId) && message.sender === currentUserId);
-  const primaryActionLabel = $derived("Reply");
-
   $effect(() => {
-    if (!isOptionsOpen && !actionMenuPosition) {
+    if (!actionMenuPosition && !reactionBarPosition) {
       return;
     }
 
@@ -112,28 +111,11 @@
   });
 
   function closeOptionsMenu() {
-    isOptionsOpen = false;
     actionMenuPosition = null;
-  }
-
-  function toggleOptionsMenu(event: MouseEvent) {
-    event.stopPropagation();
-
-    const button = optionsButtonElement;
-    const rect = button?.getBoundingClientRect();
-
     reactionBarPosition = null;
     reactionPickerOpen = false;
-
-    actionMenuPosition = isOptionsOpen
-      ? null
-      : {
-          x: Math.max(8, (rect?.right ?? 0) - 150),
-          y: Math.max(8, (rect?.bottom ?? 0) + 6),
-        };
-
-    isOptionsOpen = !isOptionsOpen;
   }
+
 
   /// A right click opens the quick reaction bar and the action list below it,
   /// the way Telegram does.
@@ -141,10 +123,8 @@
     event.preventDefault();
     event.stopPropagation();
 
-    isOptionsOpen = false;
     reactionPickerOpen = false;
     reactionPickerAnchor = null;
-
     // Both popups sit above the cursor, the action list right below the
     // reaction bar.
     const barWidth = 250;
@@ -181,14 +161,13 @@
     reactionBarPosition = null;
     reactionPickerOpen = false;
 
-    actionMenuPosition = isOptionsOpen
+    actionMenuPosition = actionMenuPosition
       ? null
       : {
           x: Math.max(8, (rect?.right ?? 0) - 150),
           y: Math.max(8, (rect?.bottom ?? 0) + 6),
         };
 
-    isOptionsOpen = !isOptionsOpen;
   }
 
   function openFullReactionPicker() {
@@ -311,7 +290,7 @@
     aria-label="Open message options"
     title="Message options"
     bind:this={optionsButtonElement}
-    onclick={toggleOptionsMenu}
+    onclick={toggleActionMenu}
   >
     ...
   </button>

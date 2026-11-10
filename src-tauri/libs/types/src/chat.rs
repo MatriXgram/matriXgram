@@ -144,6 +144,13 @@ pub struct MatrixSendChatMessageRequest {
     pub room_id: String,
     pub body: String,
     pub in_reply_to_event_id: Option<String>,
+    /// Pre-rendered HTML for the message.
+    ///
+    /// Forwarding a message keeps its formatting by sending the original
+    /// `formatted_body` along. The backend sanitises it before it goes out,
+    /// because it arrives from the client.
+    #[serde(default)]
+    pub formatted_body: Option<String>,
 }
 
 #[derive(Deserialize)]

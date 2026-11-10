@@ -147,6 +147,7 @@ export interface MatrixSendChatMessageRequest {
   roomId: string;
   body: string;
   inReplyToEventId?: string | null;
+  formattedBody?: string | null;
 }
 
 export interface MatrixSendMediaFileRequest {
