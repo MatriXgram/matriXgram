@@ -11,30 +11,14 @@
 		shellRefreshing,
 		shellSelectedRoomId,
 	} from "$lib/chats/shell";
+	import ThemeSettings from "$lib/components/settings/ThemeSettings.svelte";
 	import { recoveryStateLabel } from "$lib/components/verification/helpers";
-	import { currentMode, setMode, watchSystemTheme, type ThemeMode } from "$lib/theme";
+	import { watchSystemTheme } from "$lib/theme";
 
 	let loggingOut = $state(false);
 	let settingsMessage = $state("");
-	let themeMode = $state<ThemeMode>("system");
-	let resolvedTheme = $state<"light" | "dark">("light");
 
-	onMount(() => {
-		themeMode = preferredThemeMode();
-		resolvedTheme = currentMode();
-		return watchSystemTheme();
-	});
-
-	function preferredThemeMode(): ThemeMode {
-		const stored = localStorage.getItem("matrix-telegram.theme");
-		return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
-	}
-
-	function changeTheme(mode: ThemeMode) {
-		themeMode = mode;
-		setMode(mode);
-		resolvedTheme = currentMode();
-	}
+	onMount(() => watchSystemTheme());
 
 	async function refreshRooms() {
 		if (get(shellRefreshing)) {
@@ -96,35 +80,7 @@
 
 	<section class="card space-y-2 border border-hairline bg-panel p-3">
 		<h3 class="h6">Appearance</h3>
-		<p class="text-xs text-secondary">
-			Currently using the {resolvedTheme} theme.
-		</p>
-		<div class="flex gap-2">
-			<button
-				type="button"
-				class="btn btn-sm"
-				class:btn-primary={themeMode === "light"}
-				onclick={() => changeTheme("light")}
-			>
-				Light
-			</button>
-			<button
-				type="button"
-				class="btn btn-sm"
-				class:btn-primary={themeMode === "dark"}
-				onclick={() => changeTheme("dark")}
-			>
-				Dark
-			</button>
-			<button
-				type="button"
-				class="btn btn-sm"
-				class:btn-primary={themeMode === "system"}
-				onclick={() => changeTheme("system")}
-			>
-				System
-			</button>
-		</div>
+		<ThemeSettings />
 	</section>
 
 	<section class="card space-y-2 border border-hairline bg-panel p-3">

@@ -135,6 +135,25 @@ The TypeScript types in `src/lib/generated/types.ts` are generated from the
 Rust `types` crate. After changing a struct in `src-tauri/libs/types/src/`,
 run `npm run gen:types`; CI verifies the file is in sync.
 
+## Theming
+
+The app ships with the **Warp** theme (a Telegram Desktop theme by
+[@ThemesM8](https://t.me/ThemesM8)) and can load any other Telegram Desktop
+theme.
+
+- **Settings → Appearance** holds the theme controls, in the spirit of
+  Telegram Desktop: the base palette (light / dark / system), a list of
+  Telegram themes, an importer for `.tdesktop-theme` files, and manual
+  overrides for the accent colour, the background, the text colour and the
+  font size.
+- A `.tdesktop-theme` file is a ZIP archive with a `colors.tdesktop-theme`
+  entry (Telegram's own colour names, `#rrggbbaa`) and an optional
+  `background.jpg` wallpaper. The backend parses it and the frontend maps
+  Telegram's colour names onto the app's CSS variables, so a theme written
+  for the desktop client lands on the right parts of the UI.
+- The palette, the overrides and the font size are stored in
+  `localStorage`; the theme is applied before the first paint.
+
 ## Deep links
 
 The app registers the `matrix://` scheme, so `matrix://room/!room:example.org`

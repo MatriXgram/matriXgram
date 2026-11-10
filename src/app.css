@@ -41,11 +41,22 @@
 
   --tg-bubble-in: #eefdde;
   --tg-bubble-out: #3390ec;
+  --tg-bubble-in-text: #0f1419;
   --tg-bubble-out-text: #ffffff;
   --tg-bubble-shadow: rgb(0 0 0 / 0.08);
+  --tg-service-bg: rgb(0 0 0 / 0.06);
+  --tg-pinned: rgb(0 0 0 / 0.04);
+  --tg-unread-bar: rgb(0 0 0 / 0.12);
+  --tg-badge-bg: #3390ec;
+  --tg-badge-fg: #ffffff;
+  --tg-badge-bg-muted: #7a8b9b;
+  --tg-on-accent: #ffffff;
+  --tg-scrollbar: rgb(0 0 0 / 0.2);
+  --tg-scrollbar-hover: rgb(0 0 0 / 0.35);
 
   --tg-radius: 16px;
   --tg-radius-tail: 4px;
+  --tg-font-size: 15px;
 }
 
 [data-theme="dark"] {
@@ -74,8 +85,18 @@
 
   --tg-bubble-in: #182533;
   --tg-bubble-out: #2b5278;
+  --tg-bubble-in-text: #f5f5f5;
   --tg-bubble-out-text: #ffffff;
   --tg-bubble-shadow: rgb(0 0 0 / 0.35);
+  --tg-service-bg: rgb(255 255 255 / 0.06);
+  --tg-pinned: rgb(255 255 255 / 0.05);
+  --tg-unread-bar: rgb(255 255 255 / 0.14);
+  --tg-badge-bg: #6ab3f3;
+  --tg-badge-fg: #0f1419;
+  --tg-badge-bg-muted: #4a5a68;
+  --tg-on-accent: #0f1419;
+  --tg-scrollbar: rgb(255 255 255 / 0.2);
+  --tg-scrollbar-hover: rgb(255 255 255 / 0.35);
 }
 
 /* Tailwind color tokens. `inline` keeps the var() reference so the
@@ -105,6 +126,12 @@
   --color-bubble-in: var(--tg-bubble-in);
   --color-bubble-out: var(--tg-bubble-out);
   --color-bubble-out-text: var(--tg-bubble-out-text);
+  --color-bubble-in-text: var(--tg-bubble-in-text);
+
+  --color-badge: var(--tg-badge-bg);
+  --color-badge-fg: var(--tg-badge-fg);
+  --color-on-accent: var(--tg-on-accent);
+  --color-service: var(--tg-service-bg);
 
   /* Compatibility layer: Skeleton's paired surface scale, re-mapped onto the
      Telegram palette. `NNN-NNN` means "this colour in light mode, that colour
@@ -146,7 +173,7 @@
     font-family:
       -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
       Arial, sans-serif;
-    font-size: 15px;
+    font-size: var(--tg-font-size, 15px);
     line-height: 1.4;
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
@@ -252,7 +279,7 @@
 
   .bubble-in {
     background-color: var(--tg-bubble-in);
-    color: var(--tg-text);
+    color: var(--tg-bubble-in-text);
   }
 
   .bubble-out {

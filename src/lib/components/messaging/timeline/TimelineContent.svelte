@@ -9,6 +9,7 @@
     ToggleReactionHandler,
   } from "../shared";
   import { daySeparatorLabel } from "../shared";
+  import { themeSettings } from "$lib/theme";
 
   interface Props {
     messages: TimelineMessage[];
@@ -45,6 +46,8 @@
   let highlightedMessageElement: HTMLElement | null = $state(null);
   let highlightTimeout: ReturnType<typeof setTimeout> | null = $state(null);
   let ignoreNextGlobalPointerDown = $state(false);
+
+  const wallpaper = $derived($themeSettings.wallpaper);
 
   /// Two messages belong to the same group when they come from the same
   /// sender, are less than five minutes apart and share a day. A grouped
@@ -191,14 +194,18 @@
 </script>
 
 <div
-  class="timeline-scroll flex-1 overflow-y-auto px-2 pb-3 min-h-0"
+  class="timeline-scroll relative flex-1 overflow-y-auto px-2 pb-3 min-h-0"
   bind:this={timelineElement}
   onscroll={onScroll}
 >
+  {#if wallpaper}
+    <div class="pointer-events-none absolute inset-0 bg-black/30" aria-hidden="true"></div>
+  {/if}
+
   {#if messages.length === 0}
     <p class="px-3 py-6 text-center text-sm text-secondary">No messages yet.</p>
   {:else}
-    <ul class="flex flex-col gap-0.5">
+    <ul class="relative flex flex-col gap-0.5">
       {#each rows as row (row.key)}
         {#if row.kind === "separator"}
           <li class="my-3 flex justify-center">
@@ -235,5 +242,10 @@
 <style>
   .timeline-scroll {
     overflow-anchor: auto;
+    background-color: var(--tg-panel-alt);
+    background-image: var(--tg-wallpaper, none);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
   }
 </style>

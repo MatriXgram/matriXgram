@@ -216,7 +216,7 @@
               {/if}
               {#if room.unreadCount > 0}
                 <span
-                  class="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-white"
+                  class="flex h-5 min-w-5 items-center justify-center rounded-full bg-badge px-1.5 text-[11px] font-semibold text-badge-fg"
                 >
                   {room.unreadCount > 99 ? "99+" : room.unreadCount}
                 </span>

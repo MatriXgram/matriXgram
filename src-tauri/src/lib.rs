@@ -180,6 +180,7 @@ pub fn run() {
             commands::verification::matrix_start_sas_verification,
             commands::verification::matrix_accept_sas_verification,
             commands::verification::matrix_confirm_sas_verification,
+            commands::theme::matrix_load_desktop_theme,
             commands::settings::matrix_get_profile,
             commands::settings::matrix_set_display_name,
             commands::settings::matrix_set_avatar,

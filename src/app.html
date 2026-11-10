@@ -7,19 +7,22 @@
     <title>Matrix Telegram</title>
     <script>
       // Apply the saved theme (or the OS preference) before the first paint so
-      // the window never flashes the wrong palette.
+      // the window never flashes the wrong palette. The full palette of a
+      // loaded Telegram theme is applied by the app once it starts.
       (function () {
         try {
-          var stored = localStorage.getItem("matrix-telegram.theme");
+          var stored = localStorage.getItem("matrix-telegram.theme.settings");
+          var parsed = stored ? JSON.parse(stored) : null;
+          var mode = parsed && parsed.mode ? parsed.mode : "system";
           var theme =
-            stored === "light" || stored === "dark"
-              ? stored
-              : window.matchMedia("(prefers-color-scheme: dark)").matches
+            mode === "system"
+              ? window.matchMedia("(prefers-color-scheme: dark)").matches
                 ? "dark"
-                : "light";
+                : "light"
+              : mode;
           document.documentElement.setAttribute("data-theme", theme);
         } catch (error) {
-          document.documentElement.setAttribute("data-theme", "light");
+          document.documentElement.setAttribute("data-theme", "dark");
         }
       })();
     </script>

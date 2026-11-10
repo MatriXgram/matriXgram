@@ -6,11 +6,13 @@ import type {
 	MatrixAddRoomKeywordResponse,
 	MatrixChangePasswordRequest,
 	MatrixChangePasswordResponse,
+	MatrixDesktopTheme,
 	MatrixGetRoomKeywordsRequest,
 	MatrixGetRoomSettingsRequest,
 	MatrixKeywordsResponse,
 	MatrixLeaveRoomRequest,
 	MatrixLeaveRoomResponse,
+	MatrixLoadDesktopThemeRequest,
 	MatrixNotificationDefaultsResponse,
 	MatrixProfileResponse,
 	MatrixRemoveAvatarRequest,
@@ -174,6 +176,20 @@ export async function matrixSetNotificationDefault(
 	input: MatrixSetNotificationDefaultRequest,
 ): Promise<MatrixSetNotificationDefaultResponse> {
 	return invokeMatrixCommand<MatrixSetNotificationDefaultResponse>("matrix_set_notification_default", {
+		request: input,
+	});
+}
+
+/**
+ * Load a Telegram Desktop theme (`.tdesktop-theme`) from disk.
+ *
+ * The file is a ZIP archive; the backend returns its colour palette and the
+ * path of the extracted wallpaper.
+ */
+export async function matrixLoadDesktopTheme(
+	input: MatrixLoadDesktopThemeRequest,
+): Promise<MatrixDesktopTheme> {
+	return invokeMatrixCommand<MatrixDesktopTheme>("matrix_load_desktop_theme", {
 		request: input,
 	});
 }

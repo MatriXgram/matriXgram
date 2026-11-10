@@ -491,6 +491,15 @@ export interface MatrixSetNotificationDefaultResponse {
   set: boolean;
 }
 
+export interface MatrixDesktopTheme {
+  colors: Record<string, string>;
+  backgroundPath?: string | null;
+}
+
+export interface MatrixLoadDesktopThemeRequest {
+  path: string;
+}
+
 export interface RoomRefreshTrigger {
   selectedRoomId?: string | null;
   includeSelectedMessages: boolean;

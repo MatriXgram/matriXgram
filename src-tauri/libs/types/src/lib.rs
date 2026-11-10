@@ -13,6 +13,7 @@ pub mod paths;
 pub mod rooms;
 pub mod settings;
 pub mod storage_keys;
+pub mod theme;
 pub mod triggers;
 pub mod verification;
 

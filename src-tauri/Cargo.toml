@@ -37,6 +37,8 @@ log = "0.4"
 rand = "0.8"
 base64 = "0.22"
 markup = "0.15"
+# Telegram Desktop theme files are ZIP archives.
+zip = { version = "9.5", default-features = false, features = ["deflate"] }
 # Sanitiser for remote `formatted_body`, which the frontend renders with {@html}
 ammonia = "4"
 # Pinned to the version matrix-sdk-sqlite 0.19 uses: two `libsqlite3-sys`
