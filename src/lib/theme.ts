@@ -358,12 +358,10 @@ function readableTextOn(color: Rgb): string {
 
 /** Merge a patch into the settings, persist it and apply it. */
 export function updateThemeSettings(patch: Partial<ThemeSettings>): void {
-  themeSettings.update((current) => {
-    const next = { ...current, ...patch };
-    persist(next);
-    applySettings(next);
-    return next;
-  });
+  const next = { ...get(themeSettings), ...patch };
+  persist(next);
+  applySettings(next);
+  themeSettings.set(next);
 }
 
 /** Drop the Telegram theme and the manual overrides. */
@@ -375,15 +373,12 @@ export function resetThemeSettings(): void {
 export function watchSystemTheme(): () => void {
   const media = window.matchMedia(DARK_QUERY);
   const listener = () => {
-    themeSettings.update((current) => {
-      if (current.mode !== "system" || current.palette) {
-        return current;
-      }
+    const current = get(themeSettings);
+    if (current.mode !== "system" || current.palette) {
+      return;
+    }
 
-      const next = { ...current };
-      applySettings(next);
-      return next;
-    });
+    applySettings(current);
   };
 
   media.addEventListener("change", listener);
