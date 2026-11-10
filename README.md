@@ -13,6 +13,8 @@ Early development. The Matrix protocol layer is mature (it comes from the
 [Singularity](https://github.com/Luxuride/singularity) client); the Telegram
 look and the chat-list features are work in progress.
 
+See [ROADMAP.md](ROADMAP.md) for what is left, in priority order.
+
 | Area | State |
 |---|---|
 | Login (password, SSO), session restore, account switching | working |
