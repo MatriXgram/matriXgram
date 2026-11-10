@@ -27,6 +27,8 @@
     error: string;
     nextFrom: string | null;
     isSending: boolean;
+    /// Show the sender name above incoming bubbles (group chats).
+    showSenderNames?: boolean;
     onTimelineElementChange?: (element: HTMLElement | null) => void;
     onProgrammaticScroll?: () => void;
     onScroll?: (event: Event) => void;
@@ -51,6 +53,7 @@
     error,
     nextFrom,
     isSending,
+    showSenderNames = false,
     onTimelineElementChange,
     onProgrammaticScroll,
     onScroll,
@@ -63,9 +66,7 @@
 
 </script>
 
-<section
-  class="card preset-outlined-surface-200-800 bg-surface-100-900 flex flex-col flex-grow min-h-0 min-w-0 gap-3"
->
+<section class="flex min-h-0 min-w-0 flex-grow flex-col bg-panel-alt">
   <ErrorBanner {error} />
 
   {#if !selectedRoomId}
@@ -89,6 +90,7 @@
       {currentUserId}
       {pickerCustomEmoji}
       {isSending}
+      {showSenderNames}
       {onScroll}
       {onProgrammaticScroll}
       {onRetryMessage}

@@ -70,7 +70,7 @@
     for (const urlString of urls) {
       try {
         const parsed = new URL(urlString);
-        if (parsed.protocol !== "singularity:" || parsed.hostname !== "oauth-callback") {
+        if (parsed.protocol !== "matrix:" || parsed.hostname !== "oauth-callback") {
           continue;
         }
 
@@ -207,7 +207,7 @@
 <main class="min-h-screen p-4 md:p-8 grid place-items-center">
   <section class="card w-full max-w-5xl p-4 md:p-6 space-y-4 preset-outlined-surface-200-800 bg-surface-50-950">
     <header class="space-y-1">
-      <p class="text-xs font-bold uppercase tracking-[0.2em] text-primary-600-400">Singularity</p>
+      <p class="text-xs font-bold uppercase tracking-[0.2em] text-primary-600-400">Matrix Telegram</p>
       <h1 class="h2">Matrix OAuth2 Login</h1>
       <p class="text-surface-700-300">Desktop sign-in with browser-based Matrix SSO and callback completion.</p>
     </header>
@@ -288,7 +288,7 @@
               </p>
             {:else if !deepLinkRegistered}
               <p class="text-sm text-surface-700-300">
-                Browser opened, but the singularity:// callback can't be detected automatically. After signing in, copy the callback URL from your browser and paste it below.
+                Browser opened, but the matrix:// callback can't be detected automatically. After signing in, copy the callback URL from your browser and paste it below.
               </p>
             {:else}
               <p class="text-sm text-surface-700-300">
@@ -320,7 +320,7 @@
                     id="callbackUrl"
                     type="text"
                     bind:value={manualCallbackUrl}
-                    placeholder="singularity://oauth-callback?..."
+                    placeholder="matrix://oauth-callback?..."
                   />
                   <button
                     class="btn preset-filled-primary-500"

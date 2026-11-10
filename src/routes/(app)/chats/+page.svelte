@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
-  import { page } from "$app/state";
   import { onMount, tick } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -19,9 +17,6 @@
     shellChats,
     shellCurrentUserId,
     shellPickerCustomEmoji,
-    shellRootScopedRooms,
-    shellRootSpaces,
-    shellSelectedRootSpaceId,
     shellSelectedRoomId,
   } from "$lib/chats/shell";
   import type {
@@ -36,7 +31,7 @@
   import {
     normalizeReactionKey,
   } from "$lib/emoji/picker";
-  import { RoomList, RoomSettingsDialog } from "$lib/components/navigation";
+  import { RoomSettingsDialog } from "$lib/components/navigation";
   import { MessageComposer } from "$lib/components/messaging/composer";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
@@ -161,7 +156,7 @@
     // Only auto-load older messages while the user is actively scrolling up
     // toward the top. When older messages are prepended, CSS scroll anchoring
     // keeps scrollTop stable, so `scrollingUp` is false and this won't
-    // re-trigger — preventing a loop that loads the entire history at once.
+    // re-trigger â€” preventing a loop that loads the entire history at once.
     if (
       !scrollingUp ||
       scrollTop > AUTO_LOAD_TOP_THRESHOLD_PX ||
@@ -438,6 +433,11 @@
       encrypted: encryptedRoom,
       decryptionStatus: encryptedRoom ? "decrypted" : "plaintext",
       verificationStatus: "unknown",
+      isDeleted: false,
+      threadReplyCount: 0,
+      mentionsMe: false,
+      isSticker: false,
+      isVoice: false,
       localId: createStreamId(),
       sendState: "sending",
     };
@@ -468,6 +468,11 @@
       encrypted: encryptedRoom,
       decryptionStatus: encryptedRoom ? "decrypted" : "plaintext",
       verificationStatus: "unknown",
+      isDeleted: false,
+      threadReplyCount: 0,
+      mentionsMe: false,
+      isSticker: false,
+      isVoice: false,
       localId: createStreamId(),
       sendState: "sending",
     };
@@ -1024,30 +1029,15 @@
     return selectedRoom?.encrypted ?? false;
   }
 
-  const selectedRootSpaceName = $derived(
-    $shellRootSpaces.find((room) => room.roomId === $shellSelectedRootSpaceId)?.displayName ?? "Server",
-  );
-
-  async function selectRoomFromOverview(roomId: string) {
-    const room = $shellChats.find((candidate) => candidate.roomId === roomId);
-    if (!room || room.kind !== "room") {
-      return;
+  /// A direct chat shows no sender names: there is only one other person.
+  function selectedRoomIsGroup(): boolean {
+    const selectedRoomId = $shellSelectedRoomId;
+    const selectedRoom = $shellChats.find((chat) => chat.roomId === selectedRoomId);
+    if (!selectedRoom) {
+      return true;
     }
 
-    shellSelectedRoomId.set(roomId);
-
-    const params = new URLSearchParams(page.url.searchParams);
-    if ($shellSelectedRootSpaceId) {
-      params.set("rootSpaceId", $shellSelectedRootSpaceId);
-    }
-    params.set("roomId", roomId);
-
-    const search = params.toString();
-    await goto(search ? `/chats?${search}` : "/chats", {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true,
-    });
+    return !selectedRoom.isDirect;
   }
 </script>
 
@@ -1065,32 +1055,13 @@
 {/if}
 
 {#if !$shellSelectedRoomId}
-  <section class="card p-6 preset-outlined-surface-200-800 bg-surface-100-900 h-full overflow-y-auto space-y-5">
-    <header>
-      <p class="text-xs uppercase tracking-wide text-surface-700-300">Server</p>
-      <h1 class="text-2xl font-semibold">{selectedRootSpaceName}</h1>
-      <p class="text-sm text-surface-700-300 mt-1">
-        Spaces and rooms are shown as one mixed tree. Expand sub-spaces and select a room to open chat.
+  <section class="grid h-full place-items-center bg-panel-alt">
+    <div class="max-w-sm px-6 text-center">
+      <h1 class="text-xl font-semibold">Matrix Telegram</h1>
+      <p class="mt-2 text-sm text-secondary">
+        Pick a chat from the list on the left to start reading and writing.
       </p>
-    </header>
-
-    {#if !$shellSelectedRootSpaceId}
-      <p class="text-sm text-surface-700-300">Select a root space from the left column to browse its hierarchy.</p>
-    {:else}
-      <section class="space-y-2">
-        <h2 class="text-sm font-medium">{selectedRootSpaceName} Hierarchy</h2>
-        {#if $shellRootScopedRooms.length === 0}
-          <p class="text-sm text-surface-700-300">No spaces or rooms found under this root space.</p>
-        {:else}
-          <RoomList
-            rooms={$shellRootScopedRooms}
-            selectedRoomId={$shellSelectedRoomId}
-            onSelectRoom={selectRoomFromOverview}
-            emptyMessage="No spaces or rooms found under this root space."
-          />
-        {/if}
-      </section>
-    {/if}
+    </div>
   </section>
 {:else}
   <div class="flex flex-col h-full min-w-0 overflow-x-hidden">
@@ -1102,6 +1073,7 @@
       pickerCustomEmoji={$shellPickerCustomEmoji}
       roomEncrypted={selectedRoomEncrypted()}
       roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
+      showSenderNames={selectedRoomIsGroup()}
       {loadingMessages}
       {activeLoadKind}
       {streamMessageCount}
@@ -1118,21 +1090,23 @@
       onReplyToMessage={handleReplyToMessage}
     />
 
-    <MessageComposer
-      draft={messageDraft}
-      error={composerErrorMessage}
-      isSending={sendingMessage}
-      isDisabled={!$shellSelectedRoomId}
-      pickerCustomEmoji={$shellPickerCustomEmoji}
-      {replyToMessage}
-      focusNonce={composerFocusNonce}
-      placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
-      onSubmit={sendDraftMessage}
-      onDraftChange={(d) => messageDraft = d}
-      onChooseAttachment={chooseAttachment}
-      onPasteAttachmentPath={createPendingMedia}
-      onClearReply={clearReplyToMessage}
-    />
+    <div class="border-t border-hairline bg-panel p-2">
+      <MessageComposer
+        draft={messageDraft}
+        error={composerErrorMessage}
+        isSending={sendingMessage}
+        isDisabled={!$shellSelectedRoomId}
+        pickerCustomEmoji={$shellPickerCustomEmoji}
+        {replyToMessage}
+        focusNonce={composerFocusNonce}
+        placeholder={$shellSelectedRoomId ? "Write a message..." : "Select a room to compose"}
+        onSubmit={sendDraftMessage}
+        onDraftChange={(d) => messageDraft = d}
+        onChooseAttachment={chooseAttachment}
+        onPasteAttachmentPath={createPendingMedia}
+        onClearReply={clearReplyToMessage}
+      />
+    </div>
 
     {#if pendingMedia}
       <div
@@ -1171,7 +1145,7 @@
                 ></video>
               {:else}
                 <div class="text-center">
-                  <div class="text-5xl">📎</div>
+                  <div class="text-5xl">ðŸ“Ž</div>
                   <p class="mt-3 text-lg font-medium">{pendingMedia.fileName}</p>
                 </div>
               {/if}

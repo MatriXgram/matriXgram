@@ -1,5 +1,5 @@
 //! Shared types, DTOs, enums, constants, and cross-cutting abstractions
-//! (`Paths`, `EventSink`, room-update trigger types) for the Singularity
+//! (`Paths`, `EventSink`, room-update trigger types) for the Matrix Telegram
 //! domain crates. This crate intentionally avoids `matrix-sdk` and `tauri`
 //! so it compiles quickly and stays a stable foundation for the other crates.
 

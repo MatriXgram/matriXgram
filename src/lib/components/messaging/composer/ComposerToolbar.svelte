@@ -18,8 +18,7 @@
   }: Props = $props();
 </script>
 
-<label class="text-xs text-surface-700-300 mb-1" for="message-draft">Message</label>
-<div class="mb-2 flex items-center gap-2">
+<div class="flex items-center gap-1">
   <EmojiPickerPopover
     disabled={isDisabled || isSending}
     {pickerCustomEmoji}

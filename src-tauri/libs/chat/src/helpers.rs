@@ -76,6 +76,15 @@ mod tests {
 
     fn message_with_image(image_url: Option<&str>) -> MatrixChatMessage {
         MatrixChatMessage {
+            sender_display_name: None,
+            edited_at: None,
+            is_deleted: false,
+            thread_root_id: None,
+            thread_reply_count: 0,
+            mentions_me: false,
+            is_sticker: false,
+            is_voice: false,
+            audio_duration_ms: None,
             event_id: Some(String::from("$event")),
             in_reply_to_event_id: None,
             sender: String::from("@alice:example.org"),

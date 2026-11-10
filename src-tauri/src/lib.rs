@@ -56,9 +56,10 @@ pub fn run() {
             let handle = app.handle().clone();
             let paths = commands::resolve_paths(&handle)?;
             assets::initialize_media_cache_dir(paths.cache_dir());
-            // Media is disk-backed; clear any stale files from a previous
-            // session so the cache does not accumulate on disk.
-            assets::clear_media_cache();
+            // Media is disk-backed and disposable: the cache is trimmed to a
+            // size budget rather than wiped, so images the user already saw
+            // stay available after a restart.
+            assets::trim_media_cache();
 
             tauri::async_runtime::block_on(async {
                 storage::secret::init_secret(

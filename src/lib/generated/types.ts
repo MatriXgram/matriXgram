@@ -108,6 +108,15 @@ export interface MatrixChatMessage {
   encrypted: boolean;
   decryptionStatus: MatrixMessageDecryptionStatus;
   verificationStatus: MatrixMessageVerificationStatus;
+  senderDisplayName?: string | null;
+  editedAt?: number | null;
+  isDeleted: boolean;
+  threadRootId?: string | null;
+  threadReplyCount: number;
+  mentionsMe: boolean;
+  isSticker: boolean;
+  isVoice: boolean;
+  audioDurationMs?: number | null;
 }
 
 export interface MatrixChatMessageStreamEvent {
@@ -237,6 +246,11 @@ export interface MatrixChatSummary {
   joined: boolean;
   isDirect: boolean;
   childrenRoomIds: string[];
+  lastMessagePreview?: string | null;
+  lastMessageTs?: number | null;
+  unreadCount: number;
+  isPinned: boolean;
+  isMuted: boolean;
 }
 
 export interface MatrixGetChatsResponse {

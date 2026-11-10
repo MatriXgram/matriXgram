@@ -16,7 +16,9 @@ tokio = { version = "1", features = ["sync", "time", "process", "io-util", "rt",
 futures-util = "0.3"
 
 # Matrix protocol
-matrix-sdk = { version = "0.18.0", default-features = false, features = ["sso-login", "e2e-encryption", "bundled-sqlite"] }
+# 0.19.x adds the gallery message type (MSC4274), which lets a single event
+# carry several media items — the Matrix equivalent of a Telegram album.
+matrix-sdk = { version = "0.19.1", default-features = false, features = ["sso-login", "e2e-encryption", "bundled-sqlite", "unstable-msc4274", "markdown"] }
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rmp-serde = "1"
@@ -34,7 +36,9 @@ base64 = "0.22"
 markup = "0.15"
 # Sanitiser for remote `formatted_body`, which the frontend renders with {@html}
 ammonia = "4"
-rusqlite = "0.37.0"
+# Pinned to the version matrix-sdk-sqlite 0.19 uses: two `libsqlite3-sys`
+# versions in the graph would link the same native library twice.
+rusqlite = "0.40.2"
 open = "5"
 
 # Internal crates
@@ -50,9 +54,9 @@ rooms = { path = "libs/rooms" }
 settings = { path = "libs/settings" }
 
 [package]
-name = "singularity"
+name = "matrix-telegram"
 version = "0.1.0"
-description = "A Tauri App"
+description = "A Telegram-like desktop client for the Matrix protocol"
 authors = ["you"]
 edition = "2021"
 
@@ -62,7 +66,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "singularity_lib"
+name = "matrix_telegram_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

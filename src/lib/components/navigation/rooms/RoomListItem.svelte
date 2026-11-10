@@ -2,6 +2,7 @@
   import { matrixGetRoomImage, matrixJoinRoom, matrixTriggerRoomUpdate } from "$lib/chats/api";
   import type { MatrixChatSummary } from "$lib/chats/types";
   import { shellErrorMessage } from "$lib/chats/shell";
+  import { toChatListTime } from "$lib/components/messaging/shared";
   import { RoomAvatar, RoomSettingsDialog, isVirtualRoomId, roomImageCache } from "../shared";
 
   interface Props {
@@ -178,31 +179,52 @@
       <div class="flex items-center gap-2 min-w-0">
         <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} />
 
-        <p class="font-medium truncate">
-          {#if isSpace}
-            {isExpanded ? "▼" : "▶"}
-          {/if}
-          {room.displayName}
-        </p>
-      </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-baseline justify-between gap-2">
+            <p class="truncate font-medium" class:text-accent={room.isPinned}>
+              {#if isSpace}
+                {isExpanded ? "▼" : "▶"}
+              {/if}
+              {room.displayName}
+            </p>
 
-      {#if room.kind === "space"}
-        <p class="text-xs text-surface-700-300">
-          {#if !room.joined}
-            <span class="text-warning-500 font-medium">Not joined</span> • {hasChildren ? "Contains rooms" : "No child rooms"}
-          {:else}
-            {hasChildren ? "Contains rooms" : "No child rooms"}
-          {/if}
-        </p>
-      {:else}
-        <p class="text-xs text-surface-700-300">
-          {#if !room.joined}
-            <span class="text-warning-500 font-medium">Not joined</span> • {room.joinedMembers} members
-          {:else}
-            {room.encrypted ? "Encrypted" : "Unencrypted"} • {room.joinedMembers} members
-          {/if}
-        </p>
-      {/if}
+            <span class="shrink-0 text-[11px] text-secondary">
+              {toChatListTime(room.lastMessageTs)}
+            </span>
+          </div>
+
+          <div class="flex items-center justify-between gap-2">
+            <p class="truncate text-xs text-secondary">
+              {#if room.lastMessagePreview}
+                {room.lastMessagePreview}
+              {:else if room.kind === "space"}
+                {#if !room.joined}
+                  Not joined
+                {:else}
+                  {hasChildren ? "Contains rooms" : "No child rooms"}
+                {/if}
+              {:else if !room.joined}
+                Not joined
+              {:else}
+                {room.encrypted ? "Encrypted" : "Unencrypted"} • {room.joinedMembers} members
+              {/if}
+            </p>
+
+            <div class="flex shrink-0 items-center gap-1">
+              {#if room.isMuted}
+                <span class="text-secondary" title="Muted" aria-label="Muted">🔕</span>
+              {/if}
+              {#if room.unreadCount > 0}
+                <span
+                  class="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-white"
+                >
+                  {room.unreadCount > 99 ? "99+" : room.unreadCount}
+                </span>
+              {/if}
+            </div>
+          </div>
+        </div>
+      </div>
     </button>
 
     <div class="flex items-center gap-1.5 shrink-0 ml-2">

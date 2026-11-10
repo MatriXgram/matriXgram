@@ -24,6 +24,34 @@ use crate::persistence::{collect_and_store_chats, refresh_room_snapshot};
 
 pub type RoomSnapshot = HashMap<String, MatrixChatSummary>;
 
+/// Preview text of the newest message in a room.
+///
+/// Only rooms whose latest event is a plain `m.room.message` can be previewed
+/// from the sync response: an encrypted room's latest event is the ciphertext.
+/// The chat list falls back to the locally cached (decrypted) message for
+/// those.
+fn last_message_preview(room: &matrix_sdk::Room) -> Option<String> {
+    let matrix_sdk::latest_events::LatestEventValue::Remote(timeline) = room.latest_event() else {
+        return None;
+    };
+
+    let Ok(event) = timeline.raw().deserialize_as::<serde_json::Value>() else {
+        return None;
+    };
+
+    let parsed = protocol::events_schema::parse_timeline_message(
+        &event,
+        types::chat::MatrixMessageDecryptionStatus::Plaintext,
+        types::chat::MatrixMessageVerificationStatus::Unknown,
+    )?;
+
+    if parsed.encrypted {
+        return None;
+    }
+
+    Some(parsed.body)
+}
+
 pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixChatSummary> {
     let joined_rooms = client.joined_rooms();
     let children_by_parent = children_room_ids_by_parent_room(&joined_rooms).await;
@@ -58,7 +86,31 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
             .cloned()
             .unwrap_or_default();
 
+        let last_message_preview = last_message_preview(room);
+        let last_message_ts = room
+            .latest_event_timestamp()
+            // The SDK returns a `UInt` (an exact f64 integer), which converts
+            // to `i64` rather than `u64`.
+            .map(|timestamp| i64::from(timestamp.get()) as u64);
+        let unread_count = room.num_unread_messages().min(u64::from(u32::MAX)) as u32;
+        let is_pinned = room
+            .tags()
+            .await
+            .ok()
+            .flatten()
+            .map(|tags| tags.contains_key(&matrix_sdk::ruma::events::tag::TagName::Favorite))
+            .unwrap_or(false);
+        let is_muted = matches!(
+            room.notification_mode().await,
+            Some(matrix_sdk::notification_settings::RoomNotificationMode::Mute)
+        );
+
         chats.push(MatrixChatSummary {
+            last_message_preview,
+            last_message_ts,
+            unread_count,
+            is_pinned,
+            is_muted,
             room_id: room_id_str,
             display_name,
             image_url: None,
@@ -112,6 +164,11 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
                 .unwrap_or_default();
 
             chats.push(MatrixChatSummary {
+                last_message_preview: None,
+                last_message_ts: None,
+                unread_count: 0,
+                is_pinned: false,
+                is_muted: false,
                 room_id: child_id.clone(),
                 display_name,
                 image_url: None,

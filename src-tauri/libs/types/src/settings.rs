@@ -203,9 +203,9 @@ pub struct MatrixRemoveKeywordResponse {
 }
 
 /// Per-room keyword rules live as custom override push rules with the
-/// `singularity.room_keyword.` rule-ID prefix; the keyword itself is
+/// `matrix-telegram.room_keyword.` rule-ID prefix; the keyword itself is
 /// hex-encoded in the rule ID so any string is round-trippable.
-pub const ROOM_KEYWORD_RULE_PREFIX: &str = "singularity.room_keyword.";
+pub const ROOM_KEYWORD_RULE_PREFIX: &str = "matrix-telegram.room_keyword.";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -513,6 +513,11 @@ impl AppDb {
                 };
 
                 chats.push(MatrixChatSummary {
+                    last_message_preview: None,
+                    last_message_ts: None,
+                    unread_count: 0,
+                    is_pinned: false,
+                    is_muted: false,
                     room_id: row
                         .get::<_, String>(0)
                         .map_err(|error| format!("Failed to decode chats cache room id: {error}"))?,
@@ -639,6 +644,41 @@ impl AppDb {
                 .map_err(|error| format!("Failed to commit message cache transaction: {error}"))?;
 
             Ok(())
+        })
+        .await
+    }
+
+    /// Body and timestamp of the newest cached message of a room.
+    ///
+    /// The chat list shows this as the preview line. It comes from the local
+    /// cache rather than the server, so it is only known for rooms whose
+    /// timeline has been opened at least once.
+    pub async fn load_latest_cached_message(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<(String, Option<u64>)>, String> {
+        let room_id = room_id.to_owned();
+        self.run_blocking(move |connection| {
+            connection
+                .query_row(
+                    "
+                    SELECT body, timestamp
+                    FROM message_cache
+                    WHERE room_id = ?1
+                    ORDER BY sequence DESC
+                    LIMIT 1
+                    ",
+                    [&room_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<i64>>(1)?
+                                .map(|value| value.max(0) as u64),
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(|error| format!("Failed to read latest cached message: {error}"))
         })
         .await
     }
@@ -803,6 +843,15 @@ fn decode_cached_message(row: &rusqlite::Row<'_>) -> Result<MatrixChatMessage, S
     .map_err(|error| format!("Failed to parse cached custom emojis: {error}"))?;
 
     Ok(MatrixChatMessage {
+        sender_display_name: None,
+        edited_at: None,
+        is_deleted: false,
+        thread_root_id: None,
+        thread_reply_count: 0,
+        mentions_me: false,
+        is_sticker: false,
+        is_voice: false,
+        audio_duration_ms: None,
         event_id: row
             .get::<_, Option<String>>(0)
             .map_err(|error| format!("Failed to decode cached event id: {error}"))?,
@@ -893,6 +942,15 @@ mod tests {
 
     fn sample_message() -> MatrixChatMessage {
         MatrixChatMessage {
+            sender_display_name: None,
+            edited_at: None,
+            is_deleted: false,
+            thread_root_id: None,
+            thread_reply_count: 0,
+            mentions_me: false,
+            is_sticker: false,
+            is_voice: false,
+            audio_duration_ms: None,
             event_id: Some(String::from("$event1")),
             in_reply_to_event_id: None,
             sender: String::from("@alice:example.org"),
@@ -1102,6 +1160,11 @@ mod tests {
 
     fn sample_chat(room_id: &str) -> MatrixChatSummary {
         MatrixChatSummary {
+            last_message_preview: None,
+            last_message_ts: None,
+            unread_count: 0,
+            is_pinned: false,
+            is_muted: false,
             room_id: String::from(room_id),
             display_name: String::from(room_id),
             image_url: None,

@@ -101,6 +101,11 @@ if (vitest) {
         encrypted: false,
         decryptionStatus: "plaintext",
         verificationStatus: "unknown",
+        isDeleted: false,
+        threadReplyCount: 0,
+        mentionsMe: false,
+        isSticker: false,
+        isVoice: false,
       };
       const normalized = normalizeMessageImageUrl(message);
       expect(normalized.customEmojis[0].url).toBe("asset://localhost/img.png");

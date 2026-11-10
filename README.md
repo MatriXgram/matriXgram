@@ -1,8 +1,71 @@
-# Singularity
+# Matrix Telegram
 
-Singularity is a desktop Matrix client written in tauri.
+A Telegram-like desktop client for the [Matrix](https://matrix.org/) protocol,
+built with Tauri (Rust core + SvelteKit UI).
 
-The main point of singularity is to make performant matrix client. Most of the computational logic is handled in Rust utilizing multi-threading and async.
+The goal is a messaging client that feels like Telegram Desktop: a flat chat
+list, bubbles with tails, grouped messages, pinned chats, unread badges — while
+speaking Matrix natively (federation, E2EE, Spaces, threads, MatrixRTC).
+
+## Status
+
+Early development. The Matrix protocol layer is mature (it comes from the
+[Singularity](https://github.com/Luxuride/singularity) client); the Telegram
+look and the chat-list features are work in progress.
+
+| Area | State |
+|---|---|
+| Login (password, SSO), session restore, account switching | working |
+| E2EE (RustCrypto), SAS verification, recovery key | working |
+| Room list, spaces, room settings, keywords | working |
+| Message timeline, reply, reactions, media, emoji | working |
+| Telegram bubbles, grouping, date separators | working |
+| Last message preview, unread counts, pinned/muted rooms | in progress |
+| Threads (MSC3440), edits, redactions, mentions | partially done |
+| Sticker, voice message, gallery | not done |
+| OS notifications, calls (MatrixRTC) | not done |
+
+## Attribution and licence
+
+This project is a fork of [Singularity](https://github.com/Luxuride/singularity)
+by Luxuride, which is licensed under the **GPL-3.0-or-later**. The Rust core
+(`src-tauri/libs/*`), the storage layer and the Tauri scaffolding come from
+that project; the Telegram-style UI, the design tokens and the chat-list work
+are new.
+
+Because GPL-3.0 is copyleft, this fork stays GPL-3.0-or-later. The `LICENSE`
+file is the GNU General Public License v3.
+
+The Matrix Rust SDK (`matrix-rust-sdk`) and the JavaScript parts it uses are
+Apache-2.0.
+
+## Architecture
+
+```
+src-tauri/
+├── libs/            Rust domain crates, Tauri-free and reusable
+│   ├── types/       DTOs shared with the frontend (source of truth for
+│   │                src/lib/generated/types.ts)
+│   ├── protocol/    sync, event parsing, HTML sanitiser
+│   ├── auth/        login flows, session persistence
+│   ├── chat/        send/receive, media, reactions, emoji
+│   ├── rooms/       room list, navigation, avatars
+│   ├── verification/ device verification
+│   ├── storage/     encrypted sqlite cache
+│   ├── keychain/    OS credential store
+│   ├── assets/      media cache
+│   └── settings/    profile, keywords, room settings
+└── src/             Tauri binder: commands and app setup only
+src/                 SvelteKit UI
+├── lib/components/
+│   ├── messaging/   timeline, bubbles, composer
+│   └── navigation/  chat list, room settings
+└── lib/theme.ts     light/dark theme
+```
+
+The Rust crates never depend on Tauri: they take `&Paths`, `&Arc<AppDb>` and
+`&Arc<AuthState>` and return plain data. The Tauri layer only adapts them to
+IPC. That keeps the core portable to a mobile shell later.
 
 ## Prerequisites
 
@@ -21,6 +84,7 @@ Required tools:
 - npm
 - Rust toolchain (stable)
 - cargo-tauri
+- On Windows: Visual Studio Build Tools with the "Desktop development with C++" workload
 
 On Linux, you also need Tauri/WebKitGTK native dependencies.
 
@@ -46,20 +110,32 @@ npm tauri build
 
 ## Development Commands
 
-Frontend checks:
+Frontend checks (type generation + `svelte-check`):
 
 ```bash
-npm check
+npm run check
 ```
 
 Frontend build:
 
 ```bash
-npm build
+npm run build
 ```
 
-Rust tests (from src-tauri):
+Rust checks and tests (from `src-tauri`):
 
 ```bash
-cargo test
+cargo check --workspace --all-targets
+cargo test --workspace
 ```
+
+The TypeScript types in `src/lib/generated/types.ts` are generated from the
+Rust `types` crate. After changing a struct in `src-tauri/libs/types/src/`,
+run `npm run gen:types`; CI verifies the file is in sync.
+
+## Deep links
+
+The app registers the `matrix://` scheme, so `matrix://room/!room:example.org`
+and `matrix://join/#alias:example.org` open the right room. Note that Element
+registers the same scheme on Windows: only one application can own it per
+user session.

@@ -1,10 +1,28 @@
 <!doctype html>
-<html lang="en" data-theme="cerberus">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <title>Matrix Telegram</title>
+    <script>
+      // Apply the saved theme (or the OS preference) before the first paint so
+      // the window never flashes the wrong palette.
+      (function () {
+        try {
+          var stored = localStorage.getItem("matrix-telegram.theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (error) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

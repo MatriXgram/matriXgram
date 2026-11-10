@@ -46,14 +46,13 @@
       {@const reactionEmojiUrl = customEmojiUrlForToken(reaction.key, emojiByShortcodeToken, pickerEmojiBySourceUrl)}
       <button
         type="button"
-        class="rounded-full px-2 py-0.5 text-xs border"
+        class="rounded-full border px-2 py-0.5 text-xs"
         title={reactionDisplayName(reaction.key, message, pickerCustomEmoji)}
-        class:bg-primary-200-800={ownReaction(reaction)}
-        class:text-primary-900-100={ownReaction(reaction)}
-        class:bg-surface-200-800={!ownReaction(reaction)}
-        class:text-surface-900-100={!ownReaction(reaction)}
-        class:border-primary-500={ownReaction(reaction)}
-        class:border-surface-400-600={!ownReaction(reaction)}
+        class:bg-accent-soft={ownReaction(reaction)}
+        class:text-accent={ownReaction(reaction)}
+        class:border-accent={ownReaction(reaction)}
+        class:bg-hover={!ownReaction(reaction)}
+        class:border-hairline-strong={!ownReaction(reaction)}
         onclick={() => handleReactionClick(reaction.key)}
       >
         {#if reactionEmojiUrl}
@@ -73,8 +72,8 @@
 
     <EmojiPickerPopover
       buttonText="+"
-      buttonClass="rounded-full px-2 py-0.5 text-xs border border-surface-400-600 bg-surface-100-900"
-      popoverClass="absolute bottom-full left-0 mb-1 z-10 card p-2 preset-outlined-surface-300-700 bg-surface-50-950 w-[22rem] max-w-[80vw]"
+      buttonClass="rounded-full border border-hairline-strong bg-hover px-2 py-0.5 text-xs"
+      popoverClass="absolute bottom-full left-0 mb-1 z-10 rounded-xl border border-hairline bg-panel p-2 shadow-lg w-[22rem] max-w-[80vw]"
       pickerStyle="width: 100%; height: 22rem; --emoji-size: 2rem; --category-emoji-size: 1.15rem;"
       {pickerCustomEmoji}
       onSelect={handleReactionClick}

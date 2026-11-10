@@ -46,8 +46,14 @@ pub(super) async fn fetch_room_messages_impl<M: MediaResolver>(
     let raw_event_count = response.chunk.len();
     // One accumulator per pagination run, not per page: it has to outlive the
     // page a reaction was parsed in, because its target is in an older page.
-    let (mut messages, mut had_utd) =
-        parse_message_chunk(media_resolver, client, response.chunk, reactions_by_target).await;
+    let (mut messages, mut had_utd) = parse_message_chunk(
+        media_resolver,
+        client,
+        &room_id,
+        response.chunk,
+        reactions_by_target,
+    )
+    .await;
     let mut next_from = response.end;
 
     if had_utd && client.encryption().backups().are_enabled().await {
@@ -70,6 +76,7 @@ pub(super) async fn fetch_room_messages_impl<M: MediaResolver>(
                     let (retry_messages, retry_had_utd) = parse_message_chunk(
                         media_resolver,
                         client,
+                        &room_id,
                         retry_response.chunk,
                         reactions_by_target,
                     )

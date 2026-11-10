@@ -6,15 +6,15 @@ on:
       manifest-path:
         required: false
         type: string
-        default: 'flatpak/eu.luxuride.singularity.yml'
+        default: 'flatpak/app.matrix.telegram.yml'
       bundle-name:
         required: false
         type: string
-        default: 'singularity-linux-flatpak.flatpak'
+        default: 'matrix-telegram-linux-flatpak.flatpak'
       artifact-name:
         required: false
         type: string
-        default: 'singularity-linux-flatpak'
+        default: 'matrix-telegram-linux-flatpak'
 
 jobs:
   build-flatpak:

@@ -18,6 +18,21 @@ pub struct ParsedTimelineMessage {
     pub encrypted: bool,
     pub decryption_status: MatrixMessageDecryptionStatus,
     pub verification_status: MatrixMessageVerificationStatus,
+    /// `m.relates_to.rel_type` of the event, when it carries a relation.
+    pub relates_to_rel_type: Option<String>,
+    /// `m.relates_to.event_id` of the event: the event this one relates to.
+    pub relates_to_event_id: Option<String>,
+    /// `m.relates_to.is_falling_back`: a reply that should still show in the
+    /// main timeline even though it also belongs to a thread.
+    pub is_falling_back: bool,
+    /// `m.mentions.user_ids`: the users this message calls out.
+    pub mention_user_ids: Vec<String>,
+    /// The event was redacted: its content is empty and the body is gone.
+    pub is_redacted: bool,
+    /// The event is a sticker (MSC2545).
+    pub is_sticker: bool,
+    /// Duration of a voice message (MSC3245), in milliseconds.
+    pub voice_duration_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +57,7 @@ const KNOWN_MESSAGE_TYPES: &[&str] = &[
     event_types::message_types::VIDEO,
     event_types::message_types::AUDIO,
     event_types::message_types::FILE,
+    event_types::message_types::STICKER,
 ];
 
 pub fn parse_reaction_event(event: &Value) -> Option<ParsedReactionEvent> {
@@ -117,14 +133,40 @@ pub fn parse_timeline_message(
     if event_type == event_types::ROOM_MESSAGE {
         let content = event.get("content");
         let in_reply_to_event_id = extract_in_reply_to_event_id(content);
+
+        let relates_to = content.and_then(|content| content.get("m.relates_to"));
+        let relates_to_rel_type = relates_to
+            .and_then(|value| value.get("rel_type"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let relates_to_event_id = relates_to
+            .and_then(|value| value.get("event_id"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let is_falling_back = relates_to
+            .and_then(|value| value.get("is_falling_back"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // An edit carries the new text in `m.new_content`; the outer content
+        // only holds the fallback body. Rendering the new text is what makes
+        // "edited" messages read as an edit rather than as a new message.
+        let effective_content =
+            if relates_to_rel_type.as_deref() == Some(event_types::rel_types::REPLACE) {
+                content
+                    .and_then(|content| content.get("m.new_content"))
+                    .or(content)
+            } else {
+                content
+            };
+
         // An event type is not a msgtype. A message without one keeps its body.
-        let msgtype = event
-            .get("content")
+        let msgtype = effective_content
             .and_then(|content| content.get("msgtype"))
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty());
         let message_type = msgtype.map(ToOwned::to_owned);
-        let body = content
+        let body = effective_content
             .and_then(|content| content.get("body"))
             .and_then(Value::as_str)
             .unwrap_or("Unsupported message")
@@ -132,7 +174,7 @@ pub fn parse_timeline_message(
         // Remote HTML is untrusted: the frontend renders this with `{@html}`, so
         // it is sanitised here, at the trust boundary, before it reaches the
         // database cache or any Svelte component.
-        let formatted_body = content
+        let formatted_body = effective_content
             .and_then(|content| content.get("formatted_body"))
             .and_then(Value::as_str)
             .and_then(sanitize_formatted_body);
@@ -147,6 +189,35 @@ pub fn parse_timeline_message(
             None => body,
         };
 
+        // A redacted event keeps its type but loses its content.
+        let is_redacted = content
+            .and_then(|content| content.as_object())
+            .map(|object| object.is_empty())
+            .unwrap_or(false);
+
+        // A redacted event has no body left: the UI renders "message deleted"
+        // in its place rather than the placeholder text.
+        let body = if is_redacted { String::new() } else { body };
+
+        let mention_user_ids = content
+            .and_then(|content| content.get("m.mentions"))
+            .and_then(|mentions| mentions.get("user_ids"))
+            .and_then(Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let is_sticker = msgtype == Some(event_types::message_types::STICKER);
+
+        let voice_duration_ms = content
+            .and_then(|content| content.get(event_types::VOICE_METADATA_KEY))
+            .and_then(|voice| voice.get("duration"))
+            .and_then(Value::as_u64);
+
         return Some(ParsedTimelineMessage {
             event_id,
             in_reply_to_event_id,
@@ -159,6 +230,13 @@ pub fn parse_timeline_message(
             encrypted: !matches!(decryption_status, MatrixMessageDecryptionStatus::Plaintext),
             decryption_status,
             verification_status,
+            relates_to_rel_type,
+            relates_to_event_id,
+            is_falling_back,
+            mention_user_ids,
+            is_redacted,
+            is_sticker,
+            voice_duration_ms,
         });
     }
 
@@ -175,6 +253,13 @@ pub fn parse_timeline_message(
             encrypted: true,
             decryption_status: MatrixMessageDecryptionStatus::UnableToDecrypt,
             verification_status: MatrixMessageVerificationStatus::Unknown,
+            relates_to_rel_type: None,
+            relates_to_event_id: None,
+            is_falling_back: false,
+            mention_user_ids: Vec::new(),
+            is_redacted: false,
+            is_sticker: false,
+            voice_duration_ms: None,
         });
     }
 

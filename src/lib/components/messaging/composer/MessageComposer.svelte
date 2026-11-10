@@ -134,39 +134,39 @@
 </script>
 
 <form
-  class="card p-3 mt-3 preset-outlined-surface-200-800 bg-surface-100-900 relative"
+  class="relative flex flex-col rounded-2xl border border-hairline bg-panel px-2 py-1.5"
   onsubmit={handleSubmit}
 >
   <ErrorBanner {error} class="mb-2 text-sm preset-filled-error-500 card p-2" />
 
   {#if replyToMessage}
-    <div class="mb-2 flex items-start justify-between gap-2 rounded border border-surface-300-700 bg-surface-100-900 px-3 py-2">
+    <div class="mb-1 flex items-start justify-between gap-2 rounded-lg border-l-4 border-accent bg-hover px-3 py-2">
       <div class="min-w-0">
-        <p class="text-xs font-semibold uppercase tracking-wide text-surface-600-400">
-          Replying to {replyToMessage.sender}
+        <p class="text-xs font-semibold text-accent">
+          Replying to {replyToMessage.senderDisplayName ?? replyToMessage.sender}
         </p>
 
         {#if replyToMessage.messageType === "m.image" && replyToMessage.imageUrl}
-          <div class="mt-1 flex items-center gap-2 text-sm text-surface-800-200">
+          <div class="mt-1 flex items-center gap-2 text-sm">
             <img
               src={replyToMessage.imageUrl}
               alt={replyToMessage.body || "Reply image"}
               loading="lazy"
-              class="h-8 w-8 rounded border border-surface-300-700 object-cover bg-surface-100-900"
+              class="h-8 w-8 rounded border border-hairline object-cover"
             />
             <span class="truncate">Image</span>
           </div>
         {:else if replyFormattedPreview}
-          <div class="reply-formatted-preview mt-1 text-sm text-surface-800-200">
+          <div class="reply-formatted-preview mt-1 text-sm">
             {@html replyFormattedPreview}
           </div>
         {:else if replyTextPreview}
-          <p class="mt-1 truncate text-sm text-surface-800-200">{replyTextPreview}</p>
+          <p class="mt-1 truncate text-sm">{replyTextPreview}</p>
         {/if}
       </div>
       <button
         type="button"
-        class="shrink-0 rounded px-2 py-1 text-xs font-medium text-surface-700-300 hover:bg-surface-200-800 hover:text-surface-900-100"
+        class="shrink-0 rounded px-2 py-1 text-xs font-medium text-secondary hover:bg-active hover:text-primary"
         onclick={() => onClearReply?.()}
       >
         Clear
@@ -174,33 +174,35 @@
     </div>
   {/if}
 
-  <ComposerToolbar
-    {isDisabled}
-    {isSending}
-    {pickerCustomEmoji}
-    onInsertEmoji={insertEmoji}
-  />
-
-  <div id="message-draft">
-    <ComposerEditor
-      bind:this={composerEditor}
-      {draft}
-      {placeholder}
+  <div class="flex items-start gap-1">
+    <ComposerToolbar
       {isDisabled}
       {isSending}
       {pickerCustomEmoji}
-      shortcodeRange={draftShortcodeRange}
-      shortcodeSuggestionCount={draftShortcodeSuggestions.length}
-      onDraftChange={handleEditorDraftChange}
-      onCursorChange={(position) => {
-        cursorPosition = position;
-      }}
-      onSubmit={handleEditorSubmit}
-      onSuggestionPositionChange={(position) => {
-        suggestionPopupPosition = position;
-      }}
-      onPasteAttachmentPath={onPasteAttachmentPath}
+      onInsertEmoji={insertEmoji}
     />
+
+    <div id="message-draft" class="min-w-0 flex-1">
+      <ComposerEditor
+        bind:this={composerEditor}
+        {draft}
+        {placeholder}
+        {isDisabled}
+        {isSending}
+        {pickerCustomEmoji}
+        shortcodeRange={draftShortcodeRange}
+        shortcodeSuggestionCount={draftShortcodeSuggestions.length}
+        onDraftChange={handleEditorDraftChange}
+        onCursorChange={(position) => {
+          cursorPosition = position;
+        }}
+        onSubmit={handleEditorSubmit}
+        onSuggestionPositionChange={(position) => {
+          suggestionPopupPosition = position;
+        }}
+        onPasteAttachmentPath={onPasteAttachmentPath}
+      />
+    </div>
   </div>
 
   {#if draftShortcodeSuggestions.length > 0 && suggestionPopupPosition}

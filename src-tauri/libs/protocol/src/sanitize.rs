@@ -48,6 +48,12 @@ const ALLOWED_TAGS: &[&str] = &[
     "sub",
     "sup",
     "hr",
+    // Collapsible spoiler blocks (`<details>` / `<summary>`) are part of the
+    // Matrix rich-text spec (MSC2402).
+    "details",
+    "summary",
+    // `<font color="…">` is how Matrix carries a text colour.
+    "font",
 ];
 
 /// Attributes kept per tag.
@@ -71,6 +77,8 @@ const ALLOWED_ATTRIBUTES: &[&str] = &[
     "data-mx-emoticon",
     "data-mx-color",
     "data-mx-bg-color",
+    "data-mx-spoiler",
+    "data-mx-maths",
 ];
 
 /// URL schemes permitted in `href` and `src`.
@@ -83,6 +91,7 @@ const ALLOWED_ATTRIBUTES: &[&str] = &[
 const ALLOWED_URL_SCHEMES: &[&str] = &["http", "https", "mxc", "asset", "mailto"];
 
 fn ammonia_config() -> &'static ammonia::Builder<'static> {
+    use std::borrow::Cow;
     use std::sync::OnceLock;
     static CONFIG: OnceLock<ammonia::Builder<'static>> = OnceLock::new();
     CONFIG.get_or_init(|| {
@@ -90,9 +99,62 @@ fn ammonia_config() -> &'static ammonia::Builder<'static> {
         builder
             .tags(ALLOWED_TAGS.iter().copied().collect::<HashSet<_>>())
             .generic_attributes(ALLOWED_ATTRIBUTES.iter().copied().collect::<HashSet<_>>())
-            .url_schemes(ALLOWED_URL_SCHEMES.iter().copied().collect::<HashSet<_>>());
+            .url_schemes(ALLOWED_URL_SCHEMES.iter().copied().collect::<HashSet<_>>())
+            // `color` is only meaningful on `<font>`, and only as a colour.
+            .add_tag_attributes("font", &["color"])
+            .attribute_filter(|element, attribute, value| {
+                if element == "font" && attribute == "color" {
+                    if !is_safe_color(value) {
+                        return None;
+                    }
+
+                    return Some(Cow::Borrowed(value));
+                }
+
+                Some(Cow::Borrowed(value))
+            });
         builder
     })
+}
+
+/// Whether a `<font color="…">` value is a plain colour.
+///
+/// Anything that is not a hex triplet, an `rgb()`/`rgba()` expression or a
+/// colour keyword is dropped: the attribute never carries a URL, but keeping
+/// the value to a known shape means a crafted value cannot be used to smuggle
+/// anything else into the rendered markup.
+fn is_safe_color(value: &str) -> bool {
+    let value = value.trim();
+
+    if value.is_empty() {
+        return false;
+    }
+
+    if let Some(hex) = value.strip_prefix('#') {
+        return matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit());
+    }
+
+    let lower = value.to_ascii_lowercase();
+    if let Some(inner) = lower
+        .strip_prefix("rgba(")
+        .and_then(|rest| rest.strip_suffix(')'))
+    {
+        return inner
+            .split(',')
+            .all(|part| part.trim().parse::<f32>().is_ok());
+    }
+
+    if let Some(inner) = lower
+        .strip_prefix("rgb(")
+        .and_then(|rest| rest.strip_suffix(')'))
+    {
+        return inner
+            .split(',')
+            .all(|part| part.trim().parse::<u8>().is_ok());
+    }
+
+    // Colour keyword: letters only.
+    value.chars().all(|c| c.is_ascii_alphabetic())
 }
 
 /// Sanitise a remote `formatted_body`.
@@ -247,6 +309,27 @@ mod tests {
                 assert!(!lowered.contains(tag), "{payload} -> {sanitized}");
             }
         }
+    }
+
+    #[test]
+    fn keeps_spoiler_and_details_markup() {
+        let html =
+            "<details><summary>Twist</summary><span data-mx-spoiler=\"\">hidden</span></details>";
+        let sanitized = sanitize_formatted_body(html).unwrap();
+
+        assert!(sanitized.contains("<details>"), "{sanitized}");
+        assert!(sanitized.contains("<summary>"), "{sanitized}");
+        assert!(sanitized.contains("data-mx-spoiler"), "{sanitized}");
+    }
+
+    #[test]
+    fn keeps_font_colour_but_drops_unsafe_values() {
+        let safe = sanitize_formatted_body("<font color=\"#ff0000\">red</font>").unwrap();
+        assert!(safe.contains("color=\"#ff0000\""), "{safe}");
+
+        let unsafe_value =
+            sanitize_formatted_body("<font color=\"url(javascript:alert(1))\">x</font>").unwrap();
+        assert!(!unsafe_value.contains("javascript"), "{unsafe_value}");
     }
 
     #[test]

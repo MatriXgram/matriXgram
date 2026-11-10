@@ -161,6 +161,11 @@ impl<'a> NavigationIndex<'a> {
             .count() as u64;
 
         let dms_root = MatrixChatSummary {
+            last_message_preview: None,
+            last_message_ts: None,
+            unread_count: 0,
+            is_pinned: false,
+            is_muted: false,
             room_id: VIRTUAL_DMS_ROOT_ID.to_string(),
             display_name: String::from("DMs"),
             image_url: None,
@@ -173,6 +178,11 @@ impl<'a> NavigationIndex<'a> {
         };
 
         let unspaced_root = MatrixChatSummary {
+            last_message_preview: None,
+            last_message_ts: None,
+            unread_count: 0,
+            is_pinned: false,
+            is_muted: false,
             room_id: VIRTUAL_UNSPACED_ROOT_ID.to_string(),
             display_name: String::from("Rooms"),
             image_url: None,
@@ -352,6 +362,11 @@ mod tests {
         children_room_ids: &[&str],
     ) -> MatrixChatSummary {
         MatrixChatSummary {
+            last_message_preview: None,
+            last_message_ts: None,
+            unread_count: 0,
+            is_pinned: false,
+            is_muted: false,
             room_id: room_id.to_string(),
             display_name: room_id.to_string(),
             image_url: None,

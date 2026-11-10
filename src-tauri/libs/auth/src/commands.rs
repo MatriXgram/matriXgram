@@ -113,7 +113,7 @@ pub async fn complete_oauth(
         .matrix_auth()
         .login_with_sso_callback(matrix_sdk::utils::UrlOrQuery::Url(callback_url))
         .map_err(|_| String::from("Callback URL is missing a valid loginToken"))?
-        .initial_device_display_name("Singularity Desktop")
+        .initial_device_display_name(types::config::DEVICE_DISPLAY_NAME)
         .request_refresh_token()
         .send()
         .await
@@ -203,7 +203,7 @@ pub async fn password_login(
     let parsed = match client
         .matrix_auth()
         .login_username(username, &request.password)
-        .initial_device_display_name("Singularity Desktop")
+        .initial_device_display_name(types::config::DEVICE_DISPLAY_NAME)
         .request_refresh_token()
         .send()
         .await

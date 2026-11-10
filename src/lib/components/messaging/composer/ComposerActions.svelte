@@ -14,20 +14,25 @@
   }: Props = $props();
 </script>
 
-<div class="mt-2 flex items-center justify-between gap-2">
+<div class="mt-1 flex items-center justify-between gap-2">
   <button
     type="button"
-    class="btn preset-outlined"
+    class="btn btn-sm"
     disabled={isDisabled || isSending}
+    title="Attach a file"
+    aria-label="Attach a file"
     onclick={() => onChooseAttachment?.()}
   >
-    Attach file
+    📎
   </button>
+
   <button
     type="submit"
-    class="btn preset-filled"
+    class="btn btn-sm btn-primary"
     disabled={isDisabled || isSending || draft.trim().length === 0}
+    title="Send"
+    aria-label="Send message"
   >
-    {#if isSending}Sending...{:else}Send{/if}
+    {#if isSending}…{:else}➤{/if}
   </button>
 </div>

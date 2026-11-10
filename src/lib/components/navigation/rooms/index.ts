@@ -1,3 +1,4 @@
+export { default as ChatList } from "./ChatList.svelte";
 export { default as RoomList } from "./RoomList.svelte";
 export { default as RoomListItem } from "./RoomListItem.svelte";
 export { buildRoomHierarchy, sortRooms } from "./hierarchy";

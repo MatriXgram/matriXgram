@@ -31,7 +31,7 @@ jobs:
       platform: 'macos-latest'
       args: '--target aarch64-apple-darwin'
       rust-targets: 'aarch64-apple-darwin'
-      artifact-name: 'singularity-macos-aarch64'
+      artifact-name: 'matrix-telegram-macos-aarch64'
       artifact-path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
     secrets: inherit
 
@@ -45,7 +45,7 @@ jobs:
       platform: 'ubuntu-22.04'
       args: '--bundles deb,rpm'
       rust-targets: ''
-      artifact-name: 'singularity-linux-x64'
+      artifact-name: 'matrix-telegram-linux-x64'
       artifact-path: |
         src-tauri/target/release/bundle/**/*.deb
         src-tauri/target/release/bundle/**/*.rpm
@@ -61,7 +61,7 @@ jobs:
       platform: 'windows-latest'
       args: ''
       rust-targets: ''
-      artifact-name: 'singularity-windows-x64'
+      artifact-name: 'matrix-telegram-windows-x64'
       artifact-path: 'src-tauri/target/release/bundle/**'
     secrets: inherit
 
@@ -72,9 +72,9 @@ jobs:
       - npm-check
     uses: ./.github/workflows/build-flatpak-job.yml
     with:
-      manifest-path: 'flatpak/eu.luxuride.singularity.yml'
-      bundle-name: 'singularity-linux-flatpak.flatpak'
-      artifact-name: 'singularity-linux-flatpak'
+      manifest-path: 'flatpak/app.matrix.telegram.yml'
+      bundle-name: 'matrix-telegram-linux-flatpak.flatpak'
+      artifact-name: 'matrix-telegram-linux-flatpak'
     secrets: inherit
 
   publish-release:
@@ -93,25 +93,25 @@ jobs:
       - name: download macos artifact
         uses: actions/download-artifact@v8
         with:
-          name: 'singularity-macos-aarch64'
+          name: 'matrix-telegram-macos-aarch64'
           path: 'release-assets/macos-aarch64'
 
       - name: download linux artifact
         uses: actions/download-artifact@v8
         with:
-          name: 'singularity-linux-x64'
+          name: 'matrix-telegram-linux-x64'
           path: 'release-assets/linux-x64'
 
       - name: download windows artifact
         uses: actions/download-artifact@v8
         with:
-          name: 'singularity-windows-x64'
+          name: 'matrix-telegram-windows-x64'
           path: 'release-assets/windows-x64'
 
       - name: download flatpak artifact
         uses: actions/download-artifact@v8
         with:
-          name: 'singularity-linux-flatpak'
+          name: 'matrix-telegram-linux-flatpak'
           path: 'release-assets/linux-flatpak'
 
       - name: package release assets by package type
@@ -121,7 +121,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ format('Singularity {0}', github.ref_name) }}
+          name: ${{ format('Matrix Telegram {0}', github.ref_name) }}
           body: ${{ format('Release for {0}', github.ref_name) }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

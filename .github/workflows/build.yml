@@ -31,7 +31,7 @@ jobs:
       platform: 'macos-latest'
       args: '--target aarch64-apple-darwin'
       rust-targets: 'aarch64-apple-darwin'
-      artifact-name: 'singularity-macos-aarch64'
+      artifact-name: 'matrix-telegram-macos-aarch64'
       artifact-path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
     secrets: inherit
 
@@ -45,7 +45,7 @@ jobs:
       platform: 'windows-latest'
       args: ''
       rust-targets: ''
-      artifact-name: 'singularity-windows-x64'
+      artifact-name: 'matrix-telegram-windows-x64'
       artifact-path: 'src-tauri/target/release/bundle/**'
     secrets: inherit
 
@@ -56,8 +56,8 @@ jobs:
       - npm-check
     uses: ./.github/workflows/build-flatpak-job.yml
     with:
-      manifest-path: 'flatpak/eu.luxuride.singularity.yml'
-      bundle-name: 'singularity-linux-flatpak.flatpak'
-      artifact-name: 'singularity-linux-flatpak'
+      manifest-path: 'flatpak/app.matrix.telegram.yml'
+      bundle-name: 'matrix-telegram-linux-flatpak.flatpak'
+      artifact-name: 'matrix-telegram-linux-flatpak'
     secrets: inherit
 

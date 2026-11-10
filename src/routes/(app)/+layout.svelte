@@ -35,7 +35,7 @@
     MatrixRoomRemovedEvent,
     MatrixSelectedRoomMessagesEvent,
   } from "$lib/chats/types";
-  import { AppHeader, RootSpaceList, RoomList, RoomSettingsDialog } from "$lib/components/navigation";
+  import { AppHeader, ChatList, RoomSettingsDialog } from "$lib/components/navigation";
   import { invalidateSenderAvatar, roomImageCache, senderAvatarCache } from "$lib/components/navigation/shared";
 
   let { children } = $props();
@@ -92,8 +92,8 @@
       try {
         const parsed = new URL(urlString);
         
-        if (parsed.protocol === "singularity:") {
-          // singularity://join/#example:matrix.org
+        if (parsed.protocol === "matrix:") {
+          // matrix://join/#example:matrix.org
           if (parsed.hostname === "join" || parsed.hostname === "room" || parsed.hostname === "space") {
             const targetOrAlias = parsed.hash.length > 0 ? parsed.hash : parsed.pathname.slice(1);
             if (!targetOrAlias) continue;
@@ -312,41 +312,25 @@
   }
 </script>
 
-<main class="h-screen overflow-x-hidden">
+<main class="h-screen overflow-hidden">
     {#if $shellErrorMessage}
       <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
     {/if}
 
-    <div class="grid gap-4 lg:grid-cols-[220px_280px_minmax(0,1fr)] p-4 md:p-6 min-h-0 h-full overflow-x-hidden">
-      <div class="flex flex-col min-h-0 min-w-0 h-full gap-4">
+    <div class="grid h-full min-h-0 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div class="flex min-h-0 min-w-0 flex-col gap-2 border-r border-hairline bg-panel p-2">
         <AppHeader userId={$shellCurrentUserId} />
-          <RootSpaceList spaces={$shellRootSpaces} selectedRootSpaceId={$shellSelectedRootSpaceId} onSelectRootSpace={selectRootSpace} onReorderRootSpaces={reorderRootSpaces} />
-        <section class="card p-2 preset-outlined-surface-200-800 bg-surface-50-950">
-          <a class="btn preset-tonal w-full justify-center" href="/settings">Settings</a>
-        </section>
-      </div>
 
-      <div class="flex flex-col min-h-0 min-w-0 h-full gap-4">
-        <RoomList
-          rooms={$shellRootScopedRooms}
+        <ChatList
+          rooms={$shellChats}
           selectedRoomId={$shellSelectedRoomId}
           onSelectRoom={selectRoom}
-          emptyMessage={$shellSelectedRootSpaceId
-            ? "No rooms or subspaces in this root space yet."
-            : "Select a root space to browse rooms."}
-          showSpaceSettings={Boolean($shellSelectedRootSpaceId && !$shellSelectedRootSpaceId.startsWith("virtual:"))}
-          onOpenSpaceSettings={() => {
-            const space = get(shellRootSpaces).find(
-              (candidate) => candidate.roomId === get(shellSelectedRootSpaceId),
-            );
-            if (space && !space.roomId.startsWith("virtual:")) {
-              spaceSettingsDialogRoomId = space.roomId;
-            }
-          }}
         />
+
+        <a class="btn preset-tonal w-full justify-center" href="/settings">Settings</a>
       </div>
 
-      <section class="lg:min-h-[60vh] h-full min-w-0 overflow-x-hidden">
+      <section class="min-h-0 min-w-0 overflow-hidden">
         {@render children()}
       </section>
     </div>

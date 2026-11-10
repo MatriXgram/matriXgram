@@ -20,6 +20,21 @@ pub struct MatrixChatSummary {
     pub is_direct: bool,
     #[serde(default)]
     pub children_room_ids: Vec<String>,
+    /// Preview of the most recent message, as shown in the chat list.
+    #[serde(default)]
+    pub last_message_preview: Option<String>,
+    /// Origin server timestamp of the most recent message, in milliseconds.
+    #[serde(default)]
+    pub last_message_ts: Option<u64>,
+    /// Number of messages received since the user last read the room.
+    #[serde(default)]
+    pub unread_count: u32,
+    /// Whether the room is pinned ("Chats" in Telegram terms).
+    #[serde(default)]
+    pub is_pinned: bool,
+    /// Whether notifications for the room are muted.
+    #[serde(default)]
+    pub is_muted: bool,
 }
 
 #[derive(Serialize)]

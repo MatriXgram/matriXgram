@@ -115,7 +115,7 @@ impl AuthState {
         receiver
     }
 
-    /// Record whether the `singularity://` deep-link scheme is registered with
+    /// Record whether the `matrix://` deep-link scheme is registered with
     /// the OS. The binder sets this from the `register_all()` result during
     /// setup; when registration fails the OAuth flow falls back to manual
     /// callback paste because the browser redirect can't route back to the app.
@@ -127,7 +127,7 @@ impl AuthState {
         state.deep_link_registered = registered;
     }
 
-    /// Whether the `singularity://` deep-link scheme is registered. Defaults to
+    /// Whether the `matrix://` deep-link scheme is registered. Defaults to
     /// `true` (assume registered) if the state lock is unavailable.
     pub fn deep_link_registered(&self) -> bool {
         match self.lock_inner() {

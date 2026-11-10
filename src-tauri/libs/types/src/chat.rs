@@ -78,6 +78,34 @@ pub struct MatrixChatMessage {
     pub encrypted: bool,
     pub decryption_status: MatrixMessageDecryptionStatus,
     pub verification_status: MatrixMessageVerificationStatus,
+    /// Display name of the sender, resolved from the room member list.
+    #[serde(default)]
+    pub sender_display_name: Option<String>,
+    /// Set when the message has been edited (`m.replace`).
+    #[serde(default)]
+    pub edited_at: Option<u64>,
+    /// Set when the message has been redacted: the body is kept so the UI can
+    /// render "message deleted" in place of the original text.
+    #[serde(default)]
+    pub is_deleted: bool,
+    /// Root event id when the message belongs to a thread (`m.thread`).
+    #[serde(default)]
+    pub thread_root_id: Option<String>,
+    /// Number of replies in the thread this message starts.
+    #[serde(default)]
+    pub thread_reply_count: u32,
+    /// Whether the message mentions the local user (`m.mentions`).
+    #[serde(default)]
+    pub mentions_me: bool,
+    /// Whether the message is a sticker (MSC2545).
+    #[serde(default)]
+    pub is_sticker: bool,
+    /// Whether the message is a voice message (MSC3245).
+    #[serde(default)]
+    pub is_voice: bool,
+    /// Duration of a voice message, in milliseconds.
+    #[serde(default)]
+    pub audio_duration_ms: Option<u64>,
 }
 
 #[derive(Clone, Serialize)]

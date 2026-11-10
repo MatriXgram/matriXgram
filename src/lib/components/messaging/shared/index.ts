@@ -7,8 +7,11 @@ export type {
 } from "./types";
 
 export {
+  daySeparatorLabel,
   decryptionLabel,
   streamStatusLabel,
+  toChatListTime,
+  toClockTime,
   toTime,
   verificationLabel,
 } from "./labels";

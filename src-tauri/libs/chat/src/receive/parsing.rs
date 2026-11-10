@@ -12,6 +12,36 @@ use types::chat::{
     MatrixChatMessage, MatrixCustomEmoji, MatrixMessageDecryptionStatus,
     MatrixMessageVerificationStatus, MatrixReactionSummary,
 };
+use types::event_types;
+
+/// Resolve the display name of a sender from the room member list.
+///
+/// Falls back to the localpart of the MXID when the member is unknown, which
+/// is what a chat list needs anyway: the raw `@alice:example.org` is never a
+/// useful label.
+async fn resolve_sender_display_name(
+    client: &matrix_sdk::Client,
+    room_id: &matrix_sdk::ruma::RoomId,
+    sender: &str,
+) -> Option<String> {
+    let Ok(user_id) = protocol::parse_user_id(sender) else {
+        return None;
+    };
+
+    let Some(room) = client.get_room(room_id) else {
+        return Some(user_id.localpart().to_string());
+    };
+
+    match room.get_member(&user_id).await {
+        Ok(Some(member)) => Some(
+            member
+                .display_name()
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| user_id.localpart().to_string()),
+        ),
+        _ => Some(user_id.localpart().to_string()),
+    }
+}
 
 /// Reactions seen so far, keyed by the event they annotate, then by reaction
 /// key, then by sender.
@@ -53,12 +83,15 @@ pub(super) fn apply_reactions(messages: &mut [MatrixChatMessage], reactions: &Re
 pub(super) async fn parse_message_chunk<M: MediaResolver>(
     media_resolver: &M,
     client: &matrix_sdk::Client,
+    room_id: &matrix_sdk::ruma::RoomId,
     chunk: Vec<TimelineEvent>,
     reactions_by_target: &mut ReactionAccumulator,
 ) -> (Vec<MatrixChatMessage>, bool) {
-    let mut messages = Vec::new();
+    let mut messages: Vec<MatrixChatMessage> = Vec::new();
     let mut had_utd = false;
     let mut resolved_emoji_urls: HashMap<String, Option<String>> = HashMap::new();
+    let mut sender_display_names: HashMap<String, Option<String>> = HashMap::new();
+    let local_user_id = client.user_id().map(|user_id| user_id.to_string());
 
     for timeline in chunk {
         let encryption_info = timeline.encryption_info();
@@ -140,6 +173,9 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             });
 
             let is_video = parsed.message_type.as_deref() == Some("m.video");
+            let is_sticker = parsed.is_sticker;
+            let is_voice = parsed.voice_duration_ms.is_some()
+                || parsed.message_type.as_deref() == Some("m.audio");
 
             // Videos are downloaded on demand (when the user presses play) to
             // avoid fetching large files for every message in the timeline.
@@ -164,6 +200,46 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 (None, None)
             };
 
+            // An edit replaces an earlier message rather than adding one: the
+            // new text is applied to the target and the edit itself is not
+            // rendered as a separate bubble.
+            if parsed.relates_to_rel_type.as_deref() == Some(event_types::rel_types::REPLACE) {
+                if let Some(target_event_id) = parsed.relates_to_event_id.as_deref() {
+                    if let Some(target) = messages
+                        .iter_mut()
+                        .find(|message| message.event_id.as_deref() == Some(target_event_id))
+                    {
+                        target.body = parsed.body.clone();
+                        target.formatted_body = formatted_body.clone();
+                        target.edited_at = parsed.timestamp;
+                    }
+                }
+
+                continue;
+            }
+
+            let sender_display_name = match sender_display_names.get(&parsed.sender) {
+                Some(cached) => cached.clone(),
+                None => {
+                    let resolved =
+                        resolve_sender_display_name(client, room_id, &parsed.sender).await;
+                    sender_display_names.insert(parsed.sender.clone(), resolved.clone());
+                    resolved
+                }
+            };
+
+            let mentions_me = local_user_id
+                .as_ref()
+                .map(|user_id| parsed.mention_user_ids.iter().any(|id| id == user_id))
+                .unwrap_or(false);
+
+            let thread_root_id =
+                if parsed.relates_to_rel_type.as_deref() == Some(event_types::rel_types::THREAD) {
+                    parsed.relates_to_event_id.clone()
+                } else {
+                    None
+                };
+
             messages.push(MatrixChatMessage {
                 event_id: parsed.event_id,
                 in_reply_to_event_id: parsed.in_reply_to_event_id,
@@ -179,6 +255,15 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 encrypted: parsed.encrypted,
                 decryption_status: parsed.decryption_status,
                 verification_status: parsed.verification_status,
+                sender_display_name,
+                edited_at: None,
+                is_deleted: parsed.is_redacted,
+                thread_root_id,
+                thread_reply_count: 0,
+                mentions_me,
+                is_sticker,
+                is_voice,
+                audio_duration_ms: parsed.voice_duration_ms,
             });
         }
     }

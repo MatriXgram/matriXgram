@@ -26,22 +26,22 @@
   }: Props = $props();
 </script>
 
-<header class="flex items-center justify-between gap-2 px-4 pt-3">
-  <div>
-    <h2 class="h5">{roomName}</h2>
-    <p class="text-xs text-surface-700-300">
-      {roomEncrypted ? "Encrypted room" : "Unencrypted room"}
+<header class="flex items-center justify-between gap-2 border-b border-hairline bg-panel px-4 py-2.5">
+  <div class="min-w-0">
+    <h2 class="truncate text-[15px] font-semibold leading-tight">{roomName}</h2>
+    <p class="truncate text-[11px] text-secondary">
+      {roomEncrypted ? "🔒 Encrypted" : "Not encrypted"}
+      {#if loadingMessages && activeLoadKind}
+        <span class="text-accent">· {streamStatusLabel(loadingMessages, activeLoadKind, streamMessageCount)}</span>
+      {/if}
     </p>
-    {#if loadingMessages && activeLoadKind}
-      <p class="text-xs text-primary-700-300">{streamStatusLabel(loadingMessages, activeLoadKind, streamMessageCount)}</p>
-    {/if}
   </div>
 
-  <div class="flex items-center gap-2">
+  <div class="flex shrink-0 items-center gap-2">
     {#if roomId && onOpenSettings}
       <button
         type="button"
-        class="btn preset-tonal px-2"
+        class="btn btn-sm"
         title="Room settings"
         aria-label="Open room settings"
         onclick={() => onOpenSettings?.(roomId)}
@@ -52,11 +52,11 @@
 
     <button
       type="button"
-      class="btn preset-tonal"
+      class="btn btn-sm"
       onclick={onLoadOlder}
       disabled={!nextFrom || loadingMessages}
     >
-      {#if loadingMessages}Loading...{:else}Load Older{/if}
+      {#if loadingMessages}Loading...{:else}Load older{/if}
     </button>
   </div>
 </header>
