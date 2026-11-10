@@ -18,9 +18,12 @@ futures-util = "0.3"
 # Matrix protocol
 # 0.19.x adds the gallery message type (MSC4274), which lets a single event
 # carry several media items — the Matrix equivalent of a Telegram album.
-matrix-sdk = { version = "0.19.1", default-features = false, features = ["sso-login", "e2e-encryption", "bundled-sqlite", "unstable-msc4274", "markdown"] }
+# `rustls-aws-lc-rs` is required: matrix-sdk 0.19 pulls reqwest with
+# `rustls-no-provider`, so without it every TLS client panics at runtime with
+# "No rustls crypto provider is configured".
+matrix-sdk = { version = "0.19.1", default-features = false, features = ["sso-login", "e2e-encryption", "bundled-sqlite", "unstable-msc4274", "markdown", "rustls-aws-lc-rs"] }
 url = "2"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rmp-serde = "1"
 
 # Media / images

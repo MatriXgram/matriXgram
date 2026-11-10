@@ -252,7 +252,7 @@ pub fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
             return None;
         }
 
-        return Some(PathBuf::from(path.as_ref()));
+        return Some(asset_url_path_to_file_path(&path));
     }
 
     if raw_url.starts_with("file://") {
@@ -265,6 +265,28 @@ pub fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Turn the decoded path of an `asset://` URL back into a filesystem path.
+///
+/// A URL path always starts with a slash, but on Windows that slash is not
+/// part of the drive letter: the URL of `C:\cache\img.png` decodes to
+/// `/C:\cache\img.png`, and the extra slash would turn it into a path
+/// relative to the current drive. The separators are normalised for the
+/// platform as well, because the encoder leaves the path separators of the
+/// source platform untouched.
+fn asset_url_path_to_file_path(decoded_path: &str) -> PathBuf {
+    let trimmed = decoded_path.strip_prefix('/').unwrap_or(decoded_path);
+
+    let bytes = trimmed.as_bytes();
+    let is_windows_drive_path =
+        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+
+    if is_windows_drive_path || cfg!(windows) {
+        return PathBuf::from(trimmed.replace('/', "\\"));
+    }
+
+    PathBuf::from(trimmed)
 }
 
 pub fn cached_media_path_for_source_url(source_url: &str) -> Option<String> {
