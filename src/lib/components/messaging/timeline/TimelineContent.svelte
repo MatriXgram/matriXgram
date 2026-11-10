@@ -23,6 +23,7 @@
     onRetryMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
+    onForward?: (message: TimelineMessage) => void;
     onTimelineElementChange?: (element: HTMLElement | null) => void;
     onProgrammaticScroll?: () => void;
   }
@@ -38,6 +39,7 @@
     onRetryMessage,
     onToggleReaction,
     onReplyToMessage,
+    onForward,
     onTimelineElementChange,
     onProgrammaticScroll,
   }: Props = $props();
@@ -231,6 +233,7 @@
             {pickerCustomEmoji}
             onToggleReaction={onToggleReaction}
             onReplyToMessage={onReplyToMessage}
+            onForward={onForward}
             isSending={isSending}
           />
         {/if}

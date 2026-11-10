@@ -1,3 +1,4 @@
+export { default as MessageActionMenu } from "./MessageActionMenu.svelte";
 export { default as MessageAvatar } from "./MessageAvatar.svelte";
 export { default as MessageBody } from "./MessageBody.svelte";
 export { default as MessageEncryptionState } from "./MessageEncryptionState.svelte";

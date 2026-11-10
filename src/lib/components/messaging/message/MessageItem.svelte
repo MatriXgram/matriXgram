@@ -10,6 +10,7 @@
   } from "../shared";
   import { toClockTime } from "../shared";
   import {
+    MessageActionMenu,
     MessageAvatar,
     MessageBody,
     MessageEncryptionState,
@@ -27,6 +28,8 @@
     onRetry?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
+    onForward?: (message: TimelineMessage) => void;
+    onCopy?: (message: TimelineMessage) => void;
     onJumpToMessage?: JumpToMessageHandler;
     repliedMessage?: TimelineMessage;
     currentUserId?: string | null;
@@ -47,6 +50,8 @@
     onRetry,
     onToggleReaction,
     onReplyToMessage,
+    onForward,
+    onCopy,
     onJumpToMessage,
     repliedMessage,
     currentUserId = null,
@@ -58,21 +63,21 @@
   }: Props = $props();
 
   let optionsButtonElement: HTMLButtonElement | null = $state(null);
-  let optionsMenuElement: HTMLDivElement | null = $state(null);
   let isOptionsOpen = $state(false);
-  let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
-  let optionsMode = $state<"reply" | "copy-image">("reply");
 
   /// The quick reaction bar, shown on a right click.
   let reactionBarPosition = $state<{ x: number; y: number } | null>(null);
   let reactionPickerOpen = $state(false);
   let reactionPickerAnchor = $state<{ x: number; y: number } | null>(null);
 
+  /// The action list (reply, forward, copy) below the reaction bar.
+  let actionMenuPosition = $state<{ x: number; y: number } | null>(null);
+
   const isOwn = $derived(Boolean(currentUserId) && message.sender === currentUserId);
-  const primaryActionLabel = $derived(optionsMode === "copy-image" ? "Copy Image" : "Reply");
+  const primaryActionLabel = $derived("Reply");
 
   $effect(() => {
-    if (!isOptionsOpen) {
+    if (!isOptionsOpen && !actionMenuPosition) {
       return;
     }
 
@@ -82,7 +87,7 @@
         return;
       }
 
-      if (optionsButtonElement?.contains(target) || optionsMenuElement?.contains(target)) {
+      if (optionsButtonElement?.contains(target)) {
         return;
       }
 
@@ -108,44 +113,82 @@
 
   function closeOptionsMenu() {
     isOptionsOpen = false;
-    contextMenuPosition = null;
-    optionsMode = "reply";
+    actionMenuPosition = null;
   }
 
   function toggleOptionsMenu(event: MouseEvent) {
     event.stopPropagation();
-    optionsMode = "reply";
-    contextMenuPosition = null;
+
+    const button = optionsButtonElement;
+    const rect = button?.getBoundingClientRect();
+
+    reactionBarPosition = null;
+    reactionPickerOpen = false;
+
+    actionMenuPosition = isOptionsOpen
+      ? null
+      : {
+          x: Math.max(8, (rect?.right ?? 0) - 150),
+          y: Math.max(8, (rect?.bottom ?? 0) + 6),
+        };
+
     isOptionsOpen = !isOptionsOpen;
   }
 
-  function openOptionsMenuFromContext(event: MouseEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    optionsMode = "reply";
-    contextMenuPosition = { x: event.clientX, y: event.clientY };
-    isOptionsOpen = true;
-  }
-
-  /// A right click opens the quick reaction bar, the way Telegram does.
+  /// A right click opens the quick reaction bar and the action list below it,
+  /// the way Telegram does.
   function openReactionBar(event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
 
     isOptionsOpen = false;
-    contextMenuPosition = null;
     reactionPickerOpen = false;
     reactionPickerAnchor = null;
 
-    // Keep the bar on screen: it is placed above the cursor and shifted left
-    // when it would run past the window edge.
+    // Both popups sit above the cursor, the action list right below the
+    // reaction bar.
     const barWidth = 250;
     const barHeight = 44;
+    const menuWidth = 150;
+    const menuHeight = 132;
+
+    const x = Math.max(
+      8,
+      Math.min(event.clientX - barWidth / 2, window.innerWidth - barWidth - 8),
+    );
 
     reactionBarPosition = {
-      x: Math.max(8, Math.min(event.clientX - barWidth / 2, window.innerWidth - barWidth - 8)),
-      y: Math.max(8, event.clientY - barHeight - 8),
+      x,
+      y: Math.max(8, event.clientY - barHeight - menuHeight - 12),
     };
+
+    actionMenuPosition = {
+      x: Math.max(
+        8,
+        Math.min(event.clientX - menuWidth / 2, window.innerWidth - menuWidth - 8),
+      ),
+      y: Math.max(8, event.clientY - menuHeight - 8),
+    };
+  }
+
+  /// The "..." button opens the same action list, anchored under the button.
+  function toggleActionMenu(event: MouseEvent) {
+    event.stopPropagation();
+
+    const button = optionsButtonElement;
+    const rect = button?.getBoundingClientRect();
+
+    reactionBarPosition = null;
+    reactionPickerOpen = false;
+
+    actionMenuPosition = isOptionsOpen
+      ? null
+      : {
+          x: Math.max(8, (rect?.right ?? 0) - 150),
+          y: Math.max(8, (rect?.bottom ?? 0) + 6),
+        };
+
+    isOptionsOpen = !isOptionsOpen;
   }
 
   function openFullReactionPicker() {
@@ -163,10 +206,9 @@
     onToggleReaction?.(message, key);
   }
 
+  /// A right click on the image itself opens the same bar and action list.
   function openImageOptionsMenuFromContext(event: MouseEvent) {
-    optionsMode = "copy-image";
-    contextMenuPosition = { x: event.clientX, y: event.clientY };
-    isOptionsOpen = true;
+    openReactionBar(event);
   }
 
   async function copyImageToClipboard() {
@@ -181,16 +223,17 @@
     }
   }
 
-  function handlePrimaryAction() {
-    const actionMode = optionsMode;
-    closeOptionsMenu();
-
-    if (actionMode === "copy-image") {
-      void copyImageToClipboard();
+  /// Put the plain text of a message on the clipboard.
+  async function copyText(target: TimelineMessage) {
+    if (!target.body) {
       return;
     }
 
-    onReplyToMessage?.(message);
+    try {
+      await navigator.clipboard.writeText(target.body);
+    } catch (error) {
+      console.warn("Failed to copy text", error);
+    }
   }
 </script>
 
@@ -273,35 +316,22 @@
     ...
   </button>
 
-  {#if isOptionsOpen}
-    <div
-      class="z-20 min-w-28 overflow-hidden rounded-lg border border-hairline bg-panel shadow-lg"
-      class:fixed={Boolean(contextMenuPosition)}
-      class:absolute={!contextMenuPosition}
-      class:right-2={!contextMenuPosition}
-      class:top-10={!contextMenuPosition}
-      style={contextMenuPosition ? `left: ${contextMenuPosition.x}px; top: ${contextMenuPosition.y}px;` : undefined}
-      role="menu"
-      bind:this={optionsMenuElement}
-    >
-      <button
-        type="button"
-        class="block w-full px-3 py-2 text-left text-sm hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
-        onclick={handlePrimaryAction}
-        disabled={optionsMode === "copy-image" ? !message.imageUrl : !message.eventId}
-        role="menuitem"
-      >
-        {primaryActionLabel}
-      </button>
-    </div>
-  {/if}
-
   <ReactionQuickBar
     {message}
     position={reactionBarPosition}
     onToggleReaction={toggleReactionFromBar}
     onExpand={openFullReactionPicker}
     onClose={() => (reactionBarPosition = null)}
+  />
+
+  <MessageActionMenu
+    {message}
+    position={actionMenuPosition}
+    onReply={onReplyToMessage}
+    onForward={onForward}
+    onCopy={(target) => (onCopy ? onCopy(target) : copyText(target))}
+    onCopyImage={message.imageUrl ? copyImageToClipboard : undefined}
+    onClose={() => (actionMenuPosition = null)}
   />
 
   <EmojiPickerPopover

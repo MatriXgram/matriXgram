@@ -33,6 +33,7 @@
   } from "$lib/emoji/picker";
   import { RoomSettingsDialog } from "$lib/components/navigation";
   import { MessageComposer } from "$lib/components/messaging/composer";
+  import ForwardRoomPicker from "$lib/components/messaging/forward/ForwardRoomPicker.svelte";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
 
@@ -54,6 +55,9 @@
   let mediaErrorMessage = $state("");
   let activeMediaFilePath = $state("");
   let mediaTranscodeProgress = $state<MatrixMediaTranscodeProgressEvent | null>(null);
+  let forwardingMessage = $state<TimelineMessage | null>(null);
+  let forwardError = $state("");
+  let forwarding = $state(false);
 
   let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);
@@ -946,6 +950,40 @@
     composerFocusNonce += 1;
   }
 
+  /// Forward a message: pick the room it goes to, then send its text there.
+  function handleForwardMessage(message: TimelineMessage) {
+    forwardError = "";
+    forwardingMessage = message;
+  }
+
+  async function handleForwardToRoom(roomId: string) {
+    const message = forwardingMessage;
+    if (!message || forwarding) {
+      return;
+    }
+
+    forwarding = true;
+    forwardError = "";
+
+    try {
+      const response = await matrixSendChatMessage({
+        roomId,
+        body: message.body,
+        inReplyToEventId: null,
+      });
+
+      if (response.eventId) {
+        seenEventIds.add(response.eventId);
+      }
+
+      forwardingMessage = null;
+    } catch (error) {
+      forwardError = error instanceof Error ? error.message : "Failed to forward the message";
+    } finally {
+      forwarding = false;
+    }
+  }
+
   function clearReplyToMessage() {
     replyToMessage = null;
   }
@@ -1124,6 +1162,7 @@
       onRetryMessage={retryMessage}
       onToggleReaction={handleToggleReaction}
       onReplyToMessage={handleReplyToMessage}
+      onForwardMessage={handleForwardMessage}
     />
 
     <div class="border-t border-hairline bg-panel p-2">
@@ -1144,7 +1183,21 @@
       />
     </div>
 
-    {#if pendingMedia}
+    {#if forwardingMessage}
+  <ForwardRoomPicker
+    open={true}
+    message={forwardingMessage}
+    rooms={$shellChats}
+    error={forwardError}
+    onClose={() => {
+      forwardingMessage = null;
+      forwardError = "";
+    }}
+    onForward={handleForwardToRoom}
+  />
+{/if}
+
+{#if pendingMedia}
       <div
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
         role="button"

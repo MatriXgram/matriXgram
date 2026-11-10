@@ -37,6 +37,7 @@
     onRetryMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
+    onForwardMessage?: (message: TimelineMessage) => void;
   }
 
   let { 
@@ -62,6 +63,7 @@
     onRetryMessage,
     onToggleReaction,
     onReplyToMessage,
+    onForwardMessage,
   }: Props = $props();
 
 </script>
@@ -96,6 +98,7 @@
       {onRetryMessage}
       {onToggleReaction}
       {onReplyToMessage}
+      onForward={onForwardMessage}
       {onTimelineElementChange}
     />
   {/if}
