@@ -72,7 +72,11 @@ edition = "2021"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "matrix_telegram_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Only the rlib is built for the desktop app. `staticlib` and `cdylib` are
+# needed by `tauri android build` / `tauri ios build`, and building them here
+# makes rustc link the whole dependency graph three times, which is what makes
+# the build run out of memory on a 16 GB machine.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -111,4 +115,16 @@ rusqlite = { workspace = true, features = ["bundled-sqlcipher"] }
 # Already in the tree through wry; enables WebViewExt::set_cors_allowlist so
 # the dev build (Vite on http) can display asset:// media under WebKitGTK.
 webkit2gtk = { version = "2.0", features = ["v2_34"] }
+
+# The desktop build links the whole dependency graph into one binary, and
+# `matrix-sdk` alone is a 600 MB rlib. With full debug info for every
+# dependency, rustc runs out of memory while linking on a 16 GB machine.
+#
+# The app keeps line tables, so backtraces still show file and line, and the
+# dependencies keep none at all.
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 0
 
