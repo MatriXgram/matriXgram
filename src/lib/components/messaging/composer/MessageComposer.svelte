@@ -5,7 +5,8 @@
   import type { TimelineMessage } from "../shared";
   import { ErrorBanner } from "../shared";
   import { ShortcodeSuggestions } from "../composer-emoji";
-  import { ComposerActions, ComposerEditor, ComposerToolbar } from ".";
+  import { EmojiPickerPopover } from "../composer-emoji";
+  import { ComposerEditor } from ".";
   import type { ComposerEditorHandle, ShortcodeRange, SuggestionPosition } from ".";
 
   interface Props {
@@ -46,6 +47,9 @@
   let draftShortcodeRange = $state<ShortcodeRange | null>(null);
   let suggestionPopupPosition = $state<SuggestionPosition | null>(null);
   let lastAppliedFocusNonce = $state(0);
+
+  let emojiPickerOpen = $state(false);
+  let emojiPickerAnchor = $state<{ x: number; y: number } | null>(null);
 
   const replyTextPreview = $derived.by(() => {
     return deriveReplyTextPreview(replyToMessage);
@@ -123,6 +127,20 @@
     suggestionPopupPosition = null;
   }
 
+  /// Right click in the input opens the emoji table, the way Telegram does.
+  function handleEditorContextMenu(event: MouseEvent) {
+    event.preventDefault();
+
+    const pickerWidth = 360;
+    const pickerHeight = 400;
+
+    emojiPickerAnchor = {
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - pickerWidth - 8)),
+      y: Math.max(8, event.clientY - pickerHeight),
+    };
+    emojiPickerOpen = true;
+  }
+
   $effect(() => {
     if (focusNonce === lastAppliedFocusNonce) {
       return;
@@ -140,33 +158,33 @@
   <ErrorBanner {error} class="mb-2 text-sm preset-filled-error-500 card p-2" />
 
   {#if replyToMessage}
-    <div class="mb-1 flex items-start justify-between gap-2 rounded-lg border-l-4 border-accent bg-hover px-3 py-2">
+    <div class="mb-1 flex items-start justify-between gap-2 rounded-lg border-l-4 border-accent bg-hover px-3 py-1.5">
       <div class="min-w-0">
-        <p class="text-xs font-semibold text-accent">
+        <p class="text-[11px] font-semibold text-accent">
           Replying to {replyToMessage.senderDisplayName ?? replyToMessage.sender}
         </p>
 
         {#if replyToMessage.messageType === "m.image" && replyToMessage.imageUrl}
-          <div class="mt-1 flex items-center gap-2 text-sm">
+          <div class="mt-1 flex items-center gap-2 text-[13px]">
             <img
               src={replyToMessage.imageUrl}
               alt={replyToMessage.body || "Reply image"}
               loading="lazy"
-              class="h-8 w-8 rounded border border-hairline object-cover"
+              class="h-7 w-7 rounded border border-hairline object-cover"
             />
             <span class="truncate">Image</span>
           </div>
         {:else if replyFormattedPreview}
-          <div class="reply-formatted-preview mt-1 text-sm">
+          <div class="reply-formatted-preview mt-1 text-[13px]">
             {@html replyFormattedPreview}
           </div>
         {:else if replyTextPreview}
-          <p class="mt-1 truncate text-sm">{replyTextPreview}</p>
+          <p class="mt-1 truncate text-[13px]">{replyTextPreview}</p>
         {/if}
       </div>
       <button
         type="button"
-        class="shrink-0 rounded px-2 py-1 text-xs font-medium text-secondary hover:bg-active hover:text-primary"
+        class="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium text-secondary hover:bg-active hover:text-primary"
         onclick={() => onClearReply?.()}
       >
         Clear
@@ -174,15 +192,16 @@
     </div>
   {/if}
 
-  <div class="flex items-start gap-1">
-    <ComposerToolbar
-      {isDisabled}
-      {isSending}
-      {pickerCustomEmoji}
-      onInsertEmoji={insertEmoji}
-    />
-
-    <div id="message-draft" class="min-w-0 flex-1">
+  <div class="flex items-end gap-1">
+    <div
+      id="message-draft"
+      class="min-w-0 flex-1"
+      role="textbox"
+      tabindex="-1"
+      aria-label="Message"
+      aria-multiline="true"
+      oncontextmenu={handleEditorContextMenu}
+    >
       <ComposerEditor
         bind:this={composerEditor}
         {draft}
@@ -203,6 +222,67 @@
         onPasteAttachmentPath={onPasteAttachmentPath}
       />
     </div>
+
+    <button
+      type="button"
+      class="btn btn-sm shrink-0"
+      disabled={isDisabled || isSending}
+      title="Attach a file"
+      aria-label="Attach a file"
+      onclick={() => onChooseAttachment?.()}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        class="size-4"
+        aria-hidden="true"
+      >
+        <path
+          d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+        />
+      </svg>
+    </button>
+
+    <button
+      type="submit"
+      class="btn btn-sm btn-primary shrink-0"
+      disabled={isDisabled || isSending || draft.trim().length === 0}
+      title="Send"
+      aria-label="Send message"
+    >
+      {#if isSending}
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="size-4 animate-spin"
+          aria-hidden="true"
+        >
+          <path d="M21 12a9 9 0 1 1-6.22-8.56" />
+        </svg>
+      {:else}
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="size-4"
+          aria-hidden="true"
+        >
+          <line x1="22" y1="2" x2="11" y2="13" />
+          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+        </svg>
+      {/if}
+    </button>
   </div>
 
   {#if draftShortcodeSuggestions.length > 0 && suggestionPopupPosition}
@@ -214,18 +294,24 @@
     />
   {/if}
 
-  <ComposerActions {isSending} {isDisabled} {draft} {onChooseAttachment} />
+  <EmojiPickerPopover
+    bind:open={emojiPickerOpen}
+    hideButton
+    anchor={emojiPickerAnchor}
+    pickerCustomEmoji={pickerCustomEmoji}
+    onSelect={insertEmoji}
+  />
 </form>
 
 <style>
   #message-draft :global(.composer-editor) {
-    font-size: 1.2rem;
-    line-height: 1.45;
+    font-size: 1em;
+    line-height: 1.35;
     outline: none;
-    min-height: 2.5rem;
-    max-height: 10rem;
-    padding-top: 0.25rem;
-    padding-bottom: 0.25rem;
+    min-height: 1.4rem;
+    max-height: 9rem;
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
     height: auto;
   }
   #message-draft :global(.composer-editor p) {
@@ -233,7 +319,7 @@
   }
 
   #message-draft :global(.composer-editor p + p) {
-    margin-top: 0.12rem;
+    margin-top: 0.1rem;
   }
 
   #message-draft :global(.composer-editor:empty::before),
@@ -246,10 +332,10 @@
   #message-draft :global(.composer-custom-emoji) {
     display: inline-block;
     vertical-align: text-bottom;
-    width: 1.4rem;
-    height: 1.4rem;
+    width: 1.3em;
+    height: 1.3em;
     max-width: 100%;
-    max-height: 1.8em;
+    max-height: 1.7em;
     margin-inline: 0.04rem;
   }
 
@@ -268,10 +354,10 @@
   .reply-formatted-preview :global(img[data_mx_emoticon]) {
     display: inline-block;
     vertical-align: text-bottom;
-    width: 1.05rem;
-    height: 1.05rem;
+    width: 1em;
+    height: 1em;
     max-width: 100%;
-    max-height: 1.35em;
+    max-height: 1.3em;
     margin-inline: 0.02rem;
   }
 </style>

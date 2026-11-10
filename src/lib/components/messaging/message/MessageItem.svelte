@@ -191,7 +191,22 @@
           <span class="font-semibold">{message.threadReplyCount} replies</span>
         {/if}
         <span>{toClockTime(message.timestamp)}</span>
-        {#if isOwn}
+        {#if message.sendState === "sending"}
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="size-3"
+            aria-label="Sending"
+          >
+            <title>Sending</title>
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+        {:else if isOwn}
           <span aria-label={message.isRead ? "Read" : "Sent"}>{message.isRead ? "✓✓" : "✓"}</span>
         {/if}
       </div>

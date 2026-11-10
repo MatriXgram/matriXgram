@@ -76,7 +76,7 @@
 
     const view = new EditorView(editorMountElement, {
       state,
-      editable: () => !isDisabled && !isSending,
+      editable: () => !isDisabled,
       clipboardTextSerializer: (slice) =>
         slice.content.textBetween(0, slice.content.size, "\n", (leafNode) => {
           if (leafNode.type.name === "customEmoji") {
@@ -112,7 +112,7 @@
         }
 
         event.preventDefault();
-        if (isDisabled || isSending) {
+        if (isDisabled) {
           return true;
         }
 
@@ -180,10 +180,10 @@
 
     editorView.setProps({
       ...editorView.props,
-      editable: () => !isDisabled && !isSending,
+      editable: () => !isDisabled,
     });
 
-    if (isDisabled || isSending) {
+    if (isDisabled) {
       editorView.dom.setAttribute("tabindex", "-1");
     } else {
       editorView.dom.setAttribute("tabindex", "0");

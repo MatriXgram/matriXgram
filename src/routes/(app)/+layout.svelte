@@ -317,7 +317,13 @@
       <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
     {/if}
 
-    <div class="grid h-full min-h-0 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
+    <!-- Two columns, always: the chat list stays on the left and the
+         conversation on the right, however narrow the window gets. The window
+         itself has a minimum width, so the columns never collapse into a
+         stack. -->
+    <div
+      class="grid h-full min-h-0 overflow-hidden grid-cols-[minmax(240px,300px)_minmax(0,1fr)]"
+    >
       <div class="flex min-h-0 min-w-0 flex-col gap-2 border-r border-hairline bg-panel p-2">
         <AppHeader userId={$shellCurrentUserId} />
 

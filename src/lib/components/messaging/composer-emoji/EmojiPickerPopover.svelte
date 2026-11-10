@@ -18,6 +18,12 @@
   };
 
   interface Props {
+    /** Whether the picker is open. Bound so a right click can open it. */
+    open?: boolean;
+    /** Hide the trigger button; the picker is then only opened programmatically. */
+    hideButton?: boolean;
+    /** Screen position the picker is anchored to, in pixels. */
+    anchor?: { x: number; y: number } | null;
     buttonText?: string;
     buttonClass?: string;
     popoverClass?: string;
@@ -28,16 +34,18 @@
   }
 
   let {
+    open = $bindable(false),
+    hideButton = false,
+    anchor = null,
     buttonText = "Emoji",
-    buttonClass = "btn btn-sm preset-tonal",
-    popoverClass = "absolute bottom-full left-0 mb-2 z-20 card p-2 preset-outlined-surface-300-700 bg-surface-50-950 w-[30rem] max-w-[94vw]",
-    pickerStyle = "width: 100%; height: 22rem; --emoji-size: 2.5rem; --category-emoji-size: 1.5rem; --num-columns: 7;",
+    buttonClass = "btn btn-sm",
+    popoverClass = "rounded-xl border border-hairline bg-panel p-2 shadow-lg",
+    pickerStyle = "width: 100%; height: 22rem; --emoji-size: 2rem; --category-emoji-size: 1.15rem;",
     disabled = false,
     pickerCustomEmoji = [],
     onSelect,
   }: Props = $props();
 
-  let isOpen = $state(false);
   let pickerElement = $state<HTMLElement | null>(null);
   let pickerPopoverElement = $state<HTMLElement | null>(null);
 
@@ -46,7 +54,7 @@
   });
 
   $effect(() => {
-    if (!isOpen || !pickerElement) {
+    if (!open || !pickerElement) {
       return;
     }
 
@@ -54,7 +62,7 @@
   });
 
   $effect(() => {
-    if (!isOpen) {
+    if (!open) {
       return;
     }
 
@@ -68,13 +76,21 @@
         return;
       }
 
-      isOpen = false;
+      open = false;
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        open = false;
+      }
     };
 
     window.addEventListener("pointerdown", handleOutsidePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
       window.removeEventListener("pointerdown", handleOutsidePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   });
 
@@ -85,31 +101,37 @@
     }
 
     onSelect?.(selected);
-    isOpen = false;
+    open = false;
   }
 </script>
 
-<div class="relative" bind:this={pickerPopoverElement}>
-  <button
-    type="button"
-    class={buttonClass}
-    onclick={() => {
-      isOpen = !isOpen;
-    }}
-    {disabled}
-  >
-    {buttonText}
-  </button>
+{#if !hideButton}
+  <div class="relative" bind:this={pickerPopoverElement}>
+    <button
+      type="button"
+      class={buttonClass}
+      onclick={() => {
+        open = !open;
+      }}
+      {disabled}
+    >
+      {buttonText}
+    </button>
+  </div>
+{/if}
 
-  {#if isOpen}
-    <div class={popoverClass}>
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <emoji-picker
-        bind:this={pickerElement}
-        style={pickerStyle}
-        onemoji-click={handleEmojiClick}
-      ></emoji-picker>
-    </div>
-  {/if}
-</div>
+{#if open}
+  <div
+    class={anchor ? "fixed z-40 " + popoverClass : "absolute bottom-full left-0 z-20 mb-2 " + popoverClass}
+    style={anchor ? `left: ${anchor.x}px; top: ${anchor.y}px;` : undefined}
+    bind:this={pickerPopoverElement}
+  >
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <emoji-picker
+      bind:this={pickerElement}
+      style={pickerStyle}
+      onemoji-click={handleEmojiClick}
+    ></emoji-picker>
+  </div>
+{/if}

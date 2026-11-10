@@ -655,6 +655,7 @@
     roomId: string,
     request: MatrixSendChatMessageRequest,
     localId: string,
+    optimistic: TimelineMessage,
   ) {
     sendingMessage = true;
 
@@ -665,19 +666,28 @@
         seenEventIds.add(response.eventId);
       }
 
-      messages = messages.map((message) => {
-        if (message.localId !== localId) {
-          return message;
-        }
+      const confirmed: TimelineMessage = {
+        ...optimistic,
+        eventId: response.eventId,
+        formattedBody: response.formattedBody || optimistic.formattedBody,
+        sendState: undefined,
+        localId: undefined,
+      };
 
-        return {
-          ...message,
-          eventId: response.eventId,
-          formattedBody: response.formattedBody || message.formattedBody,
-          sendState: undefined,
-          localId: undefined,
-        };
-      });
+      const index = messages.findIndex(
+        (message) => message.localId === localId || message.eventId === response.eventId,
+      );
+
+      if (index < 0) {
+        // The timeline was rebuilt while the send was in flight (the room was
+        // re-opened, the stream restarted). The message still went out, so it
+        // is put back instead of vanishing.
+        messages = [...messages, confirmed];
+      } else {
+        messages = messages.map((message, messageIndex) =>
+          messageIndex === index ? confirmed : message,
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to send message";
       composerErrorMessage = message;
@@ -735,6 +745,7 @@
         inReplyToEventId,
       },
       localId,
+      optimistic,
     );
   }
 
@@ -899,6 +910,7 @@
         inReplyToEventId: message.inReplyToEventId,
       },
       message.localId,
+      message,
     );
   }
 

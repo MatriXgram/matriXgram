@@ -223,20 +223,44 @@ pub async fn matrix_send_chat_message(
     log::info!("matrix_send_chat_message requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_default(&client)
-        .await
-        .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
-
+    // No sync on the happy path.
+    //
+    // The room worker keeps a long poll open and the SDK serialises
+    // `sync_once` calls, so a sync here would queue behind that poll and delay
+    // the send by up to a minute. The room state the send needs is already in
+    // the SDK's cache.
+    //
+    // The one case that needs a sync is a room the SDK has not seen yet, for
+    // instance right after signing in. That path is rare enough to be worth a
+    // short sync and a retry.
     let room_id = request.room_id.clone();
     let picker_custom_emoji = chat::emoji::load_picker_assets_from_client(&client).await?;
-    let response = chat::send_chat_message(
+    let response = match chat::send_chat_message(
         &client,
         room_id.as_str(),
         request.body.as_str(),
         &picker_custom_emoji,
         request.in_reply_to_event_id.as_deref(),
     )
-    .await;
+    .await
+    {
+        Ok(response) => Ok(response),
+        Err(error) if chat::helpers::is_room_unavailable_error(&error) => {
+            protocol::sync::sync_once_brief(&client)
+                .await
+                .map_err(|sync_error| format!("Failed to sync Matrix before send: {sync_error}"))?;
+
+            chat::send_chat_message(
+                &client,
+                room_id.as_str(),
+                request.body.as_str(),
+                &picker_custom_emoji,
+                request.in_reply_to_event_id.as_deref(),
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
 
     let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), response.is_err());
 
@@ -256,10 +280,8 @@ pub async fn matrix_send_media_file(
     log::info!("matrix_send_media_file requested");
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
-    protocol::sync::sync_once_brief(&client)
-        .await
-        .map_err(|error| format!("Failed to sync Matrix before send: {error}"))?;
-
+    // No sync before the upload either: it would queue behind the room
+    // worker's long poll (see `matrix_send_chat_message`).
     let room_id = request.room_id.clone();
     let response = chat::send_media_file(
         &client,

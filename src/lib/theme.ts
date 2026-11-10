@@ -50,8 +50,8 @@ export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
 };
 
 export const FONT_SIZE_MIN = 12;
-export const FONT_SIZE_MAX = 22;
-export const FONT_SIZE_DEFAULT = 15;
+export const FONT_SIZE_MAX = 20;
+export const FONT_SIZE_DEFAULT = 14;
 
 // ---------------------------------------------------------------------------
 // Colour helpers

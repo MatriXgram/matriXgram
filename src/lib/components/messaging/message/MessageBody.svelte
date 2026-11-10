@@ -188,7 +188,7 @@
       </div>
     {/if}
     {#if message.body}
-      <figcaption class="text-base whitespace-pre-wrap break-words text-surface-700-300">
+      <figcaption class="text-[1em] whitespace-pre-wrap break-words text-surface-700-300">
         {message.body}
       </figcaption>
     {/if}
@@ -233,7 +233,7 @@
       </div>
     {/if}
     {#if message.body}
-      <figcaption class="text-base whitespace-pre-wrap break-words text-surface-700-300">
+      <figcaption class="text-[1em] whitespace-pre-wrap break-words text-surface-700-300">
         {message.body}
       </figcaption>
     {/if}
@@ -260,11 +260,11 @@
     {/if}
   </div>
 {:else if renderedFormattedBody}
-  <div class="message-formatted-body whitespace-pre-wrap break-words text-base">
+  <div class="message-formatted-body whitespace-pre-wrap break-words text-[1em]">
     {@html renderedFormattedBody}
   </div>
 {:else}
-  <p class="whitespace-pre-wrap break-words text-base">
+  <p class="whitespace-pre-wrap break-words text-[1em]">
     {message.body}
   </p>
 {/if}
