@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "Matrix Telegram",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 900,
-        "minHeight": 560,
+        "width": 900,
+        "height": 600,
+        "minWidth": 780,
+        "minHeight": 500,
         "resizable": true
       }
     ],

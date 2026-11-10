@@ -211,6 +211,30 @@
   {/if}
 
   <div class="flex items-end gap-1">
+    <button
+      type="button"
+      class="btn btn-sm shrink-0"
+      disabled={isDisabled || isSending}
+      title="Attach a file"
+      aria-label="Attach a file"
+      onclick={() => onChooseAttachment?.()}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        class="size-4"
+        aria-hidden="true"
+      >
+        <path
+          d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+        />
+      </svg>
+    </button>
+
     <div
       id="message-draft"
       class="min-w-0 flex-1"
@@ -241,29 +265,14 @@
       />
     </div>
 
-    <button
-      type="button"
-      class="btn btn-sm shrink-0"
-      disabled={isDisabled || isSending}
-      title="Attach a file"
-      aria-label="Attach a file"
-      onclick={() => onChooseAttachment?.()}
-    >
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        class="size-4"
-        aria-hidden="true"
-      >
-        <path
-          d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
-        />
-      </svg>
-    </button>
+    <EmojiPickerPopover
+      bind:open={emojiPickerOpen}
+      icon={emojiIcon}
+      buttonClass="btn btn-sm shrink-0"
+      anchor={emojiPickerAnchor}
+      pickerCustomEmoji={pickerCustomEmoji}
+      onSelect={insertEmoji}
+    />
 
     <button
       type="submit"
@@ -301,15 +310,6 @@
         </svg>
       {/if}
     </button>
-
-    <EmojiPickerPopover
-      bind:open={emojiPickerOpen}
-      icon={emojiIcon}
-      buttonClass="btn btn-sm shrink-0"
-      anchor={emojiPickerAnchor}
-      pickerCustomEmoji={pickerCustomEmoji}
-      onSelect={insertEmoji}
-    />
   </div>
 
   {#if draftShortcodeSuggestions.length > 0 && suggestionPopupPosition}

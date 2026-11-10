@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
 
-  import EmojiPickerPopover from "../composer-emoji/EmojiPickerPopover.svelte";
   import {
     buildEmojiByShortcodeToken,
     buildPickerEmojiBySourceUrl,
@@ -41,12 +40,12 @@
 </script>
 
 {#if message.eventId}
-  <div class="mt-2 flex flex-wrap items-center gap-1">
+  <div class="mt-1 flex flex-wrap items-center gap-0.5">
     {#each message.reactions as reaction (`${reaction.key}-${reaction.senders.join("|")}`)}
       {@const reactionEmojiUrl = customEmojiUrlForToken(reaction.key, emojiByShortcodeToken, pickerEmojiBySourceUrl)}
       <button
         type="button"
-        class="rounded-full border px-2 py-0.5 text-xs"
+        class="flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[11px] leading-none"
         title={reactionDisplayName(reaction.key, message, pickerCustomEmoji)}
         class:bg-accent-soft={ownReaction(reaction)}
         class:text-accent={ownReaction(reaction)}
@@ -60,23 +59,14 @@
             src={reactionEmojiUrl}
             alt={reaction.key}
             title={reactionDisplayName(reaction.key, message, pickerCustomEmoji)}
-            class="inline-block h-5 w-5 align-text-bottom"
+            class="inline-block size-3.5 align-text-bottom"
             loading="lazy"
           />
         {:else}
-          <span class="inline-block text-2xl leading-none align-text-bottom" title={reactionDisplayName(reaction.key, message, pickerCustomEmoji)}>{reaction.key}</span>
+          <span class="inline-block text-[13px] leading-none align-text-bottom" title={reactionDisplayName(reaction.key, message, pickerCustomEmoji)}>{reaction.key}</span>
         {/if}
-        {reaction.count}
+        <span class="tabular-nums">{reaction.count}</span>
       </button>
     {/each}
-
-    <EmojiPickerPopover
-      buttonText="+"
-      buttonClass="rounded-full border border-hairline-strong bg-hover px-2 py-0.5 text-xs"
-      popoverClass="absolute bottom-full left-0 mb-1 z-10 rounded-xl border border-hairline bg-panel p-2 shadow-lg w-[22rem] max-w-[80vw]"
-      pickerStyle="width: 100%; height: 22rem; --emoji-size: 2rem; --category-emoji-size: 1.15rem;"
-      {pickerCustomEmoji}
-      onSelect={handleReactionClick}
-    />
   </div>
 {/if}
