@@ -181,7 +181,7 @@
 
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline justify-between gap-2">
-            <p class="truncate font-medium" class:text-accent={room.isPinned}>
+            <p class="min-w-0 flex-1 truncate font-medium" class:text-accent={room.isPinned}>
               {#if isSpace}
                 {isExpanded ? "▼" : "▶"}
               {/if}
@@ -194,7 +194,7 @@
           </div>
 
           <div class="flex items-center justify-between gap-2">
-            <p class="truncate text-xs text-secondary">
+            <p class="min-w-0 flex-1 truncate text-xs text-secondary">
               {#if room.lastMessagePreview}
                 {room.lastMessagePreview}
               {:else if room.kind === "space"}

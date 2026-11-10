@@ -21,8 +21,7 @@
     <div class="min-w-0">
       <p class="truncate text-sm font-semibold">{displayName}</p>
       <p class="truncate text-[11px] text-muted">{userId}</p>
-    </div>
-  </div>
+    </div>  </div>
 
   <button
     type="button"

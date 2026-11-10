@@ -44,6 +44,71 @@
   let loggingOut = $state(false);
   let spaceSettingsDialogRoomId = $state<string | null>(null);
 
+  // The chat list can be resized by dragging the divider next to it.
+  const SIDEBAR_WIDTH_KEY = "matrix-telegram.sidebarWidth";
+  const SIDEBAR_WIDTH_DEFAULT = 260;
+  const SIDEBAR_WIDTH_MIN = 200;
+  const SIDEBAR_WIDTH_MAX = 440;
+
+  function loadSidebarWidth(): number {
+    try {
+      const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+      if (
+        Number.isFinite(stored) &&
+        stored >= SIDEBAR_WIDTH_MIN &&
+        stored <= SIDEBAR_WIDTH_MAX
+      ) {
+        return Math.round(stored);
+      }
+    } catch {
+      // A webview with a blocked storage partition keeps the default width.
+    }
+
+    return SIDEBAR_WIDTH_DEFAULT;
+  }
+
+  let sidebarWidth = $state(loadSidebarWidth());
+  let isResizingSidebar = $state(false);
+
+  function persistSidebarWidth() {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    } catch {
+      // The width is a convenience; failing to store it is not worth a warning.
+    }
+  }
+
+  function startSidebarResize(event: PointerEvent) {
+    event.preventDefault();
+    isResizingSidebar = true;
+
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const next = startWidth + (moveEvent.clientX - startX);
+      sidebarWidth = Math.min(
+        SIDEBAR_WIDTH_MAX,
+        Math.max(SIDEBAR_WIDTH_MIN, Math.round(next)),
+      );
+    };
+
+    const handleUp = () => {
+      isResizingSidebar = false;
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      persistSidebarWidth();
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  }
+
+  function resetSidebarWidth() {
+    sidebarWidth = SIDEBAR_WIDTH_DEFAULT;
+    persistSidebarWidth();
+  }
+
   onMount(() => {
     let unlisten = () => {};
     let unlistenDeepLink = () => {};
@@ -318,13 +383,13 @@
     {/if}
 
     <!-- Two columns, always: the chat list stays on the left and the
-         conversation on the right, however narrow the window gets. The window
-         itself has a minimum width, so the columns never collapse into a
-         stack. -->
+         conversation on the right, however narrow the window gets. The
+         divider between them can be dragged to resize the chat list. -->
     <div
-      class="grid h-full min-h-0 overflow-hidden grid-cols-[minmax(240px,300px)_minmax(0,1fr)]"
+      class="grid h-full min-h-0 overflow-hidden"
+      style={`grid-template-columns: ${sidebarWidth}px minmax(0, 1fr);`}
     >
-      <div class="flex min-h-0 min-w-0 flex-col gap-2 border-r border-hairline bg-panel p-2">
+      <div class="relative flex min-h-0 min-w-0 flex-col gap-2 bg-panel p-2">
         <AppHeader userId={$shellCurrentUserId} />
 
         <ChatList
@@ -334,6 +399,23 @@
         />
 
         <a class="btn preset-tonal w-full justify-center" href="/settings">Settings</a>
+
+        <!-- Resize handle: drag to widen or narrow the chat list, double
+             click to go back to the default width. -->
+        <div
+          class="absolute inset-y-0 -right-1 z-30 w-2 cursor-col-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the chat list"
+          title="Drag to resize, double click to reset"
+          onpointerdown={startSidebarResize}
+          ondblclick={resetSidebarWidth}
+        >
+          <div
+            class="mx-auto h-full w-px transition-colors hover:bg-accent/50"
+            class:bg-accent={isResizingSidebar}
+          ></div>
+        </div>
       </div>
 
       <section class="min-h-0 min-w-0 overflow-hidden">

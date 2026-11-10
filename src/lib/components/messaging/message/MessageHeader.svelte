@@ -3,8 +3,8 @@
 
   interface Props {
     message: TimelineMessage;
-    /// Whether the sender name is shown above the bubble. Telegram hides it
-    /// for direct chats and for grouped messages of the same sender.
+    /// Whether the sender name is shown. Telegram hides it for direct chats
+    /// and for grouped messages of the same sender.
     show: boolean;
   }
 
@@ -14,7 +14,7 @@
 </script>
 
 {#if show}
-  <span class="mb-0.5 ml-3 text-[13px] font-semibold leading-tight text-accent">
+  <span class="mb-0.5 block max-w-full truncate text-[13px] font-semibold leading-tight text-accent">
     {senderLabel}
   </span>
 {/if}

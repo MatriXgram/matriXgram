@@ -37,7 +37,7 @@
     grouped?: boolean;
     /// The next message is from another sender, so this bubble carries the tail.
     lastInGroup?: boolean;
-    /// Show the sender name above the bubble (group chats).
+    /// Show the sender name at the top of the bubble (group chats).
     showSenderName?: boolean;
   }
 
@@ -207,14 +207,14 @@
   </div>
 
   <div class="flex min-w-0 max-w-[68%] flex-col" class:items-end={isOwn}>
-    <MessageHeader {message} show={showSenderName && !isOwn && !grouped} />
-
     <div
       class="bubble {isOwn ? 'bubble-out' : 'bubble-in'}"
       class:bubble-group-last={grouped && !lastInGroup}
       class:bubble-tail={lastInGroup}
       class:message-mention={message.mentionsMe}
     >
+      <MessageHeader {message} show={showSenderName && !isOwn && !grouped} />
+
       <ReplyQuote {message} {repliedMessage} {onJumpToMessage} />
 
       <MessageBody {message} {roomId} onImageContextMenu={openImageOptionsMenuFromContext} />
