@@ -14,6 +14,8 @@ pub struct ParsedTimelineMessage {
     pub body: String,
     pub formatted_body: Option<String>,
     pub message_type: Option<String>,
+    pub image_width: Option<u64>,
+    pub image_height: Option<u64>,
     pub custom_emojis: Vec<ParsedCustomEmoji>,
     pub encrypted: bool,
     pub decryption_status: MatrixMessageDecryptionStatus,
@@ -218,6 +220,15 @@ pub fn parse_timeline_message(
             .and_then(|voice| voice.get("duration"))
             .and_then(Value::as_u64);
 
+        let image_width = content
+            .and_then(|content| content.get("info"))
+            .and_then(|info| info.get("w"))
+            .and_then(Value::as_u64);
+        let image_height = content
+            .and_then(|content| content.get("info"))
+            .and_then(|info| info.get("h"))
+            .and_then(Value::as_u64);
+
         return Some(ParsedTimelineMessage {
             event_id,
             in_reply_to_event_id,
@@ -226,6 +237,8 @@ pub fn parse_timeline_message(
             body,
             formatted_body,
             message_type,
+            image_width,
+            image_height,
             custom_emojis,
             encrypted: !matches!(decryption_status, MatrixMessageDecryptionStatus::Plaintext),
             decryption_status,
@@ -249,6 +262,8 @@ pub fn parse_timeline_message(
             body: String::from("Unable to decrypt encrypted message"),
             formatted_body: None,
             message_type: None,
+            image_width: None,
+            image_height: None,
             custom_emojis: Vec::new(),
             encrypted: true,
             decryption_status: MatrixMessageDecryptionStatus::UnableToDecrypt,

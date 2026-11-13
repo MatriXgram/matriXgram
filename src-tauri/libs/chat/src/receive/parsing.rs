@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use matrix_sdk::deserialized_responses::{TimelineEvent, VerificationState};
 use serde_json::Value;
@@ -32,7 +32,7 @@ async fn resolve_sender_display_name(
         return Some(user_id.localpart().to_string());
     };
 
-    match room.get_member(&user_id).await {
+    match room.get_member_no_sync(&user_id).await {
         Ok(Some(member)) => Some(
             member
                 .display_name()
@@ -49,7 +49,8 @@ async fn resolve_sender_display_name(
 /// This has to outlive a single network page: backward pagination returns
 /// newest->oldest, so a reaction is always authored *after* its target and
 /// therefore arrives in an *earlier* page than the message it decorates.
-pub(super) type ReactionAccumulator = BTreeMap<String, BTreeMap<String, BTreeSet<String>>>;
+pub(super) type ReactionAccumulator =
+    BTreeMap<String, BTreeMap<String, BTreeMap<String, Option<u64>>>>;
 
 /// Attach the accumulated reactions to the messages of a freshly parsed page.
 ///
@@ -74,7 +75,16 @@ pub(super) fn apply_reactions(messages: &mut [MatrixChatMessage], reactions: &Re
             .map(|(key, senders)| MatrixReactionSummary {
                 key: key.clone(),
                 count: senders.len() as u32,
-                senders: senders.iter().cloned().collect(),
+                senders: senders.keys().cloned().collect(),
+                participants: senders
+                    .iter()
+                    .map(
+                        |(user_id, timestamp)| types::chat::MatrixReactionParticipant {
+                            user_id: user_id.clone(),
+                            timestamp: *timestamp,
+                        },
+                    )
+                    .collect(),
             })
             .collect();
     }
@@ -124,7 +134,8 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 .or_default()
                 .entry(parsed_reaction.key)
                 .or_default()
-                .insert(parsed_reaction.sender);
+                .entry(parsed_reaction.sender)
+                .or_insert(event.get("origin_server_ts").and_then(Value::as_u64));
             continue;
         }
 
@@ -249,6 +260,8 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 formatted_body,
                 message_type: parsed.message_type,
                 image_url,
+                image_width: parsed.image_width,
+                image_height: parsed.image_height,
                 thumbnail_url,
                 custom_emojis,
                 reactions: Vec::new(),

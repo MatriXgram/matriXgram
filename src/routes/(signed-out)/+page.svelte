@@ -9,10 +9,17 @@
     matrixStartOAuth,
   } from "../../lib/auth/api";
 
+  import { readLastHomeserver } from "$lib/auth/homeserver";
+
   type SignInMethod = "oauth" | "password";
 
-  let homeserverUrl = $state("https://matrix.org");
-  let signInMethod = $state<SignInMethod>("oauth");
+  let homeserverUrl = $state(readLastHomeserver());
+  let signInMethod = $state<SignInMethod>("password");
+  let homeserverExpanded = $state(false);
+  const homeserverLabel = $derived.by(() => {
+    try { return new URL(homeserverUrl.trim()).host || "homeserver"; }
+    catch { return homeserverUrl.trim().replace(/^https?:\/\//, "").split("/")[0] || "homeserver"; }
+  });
   let username = $state("");
   let password = $state("");
 
@@ -21,6 +28,7 @@
   let completingOAuth = $state(false);
   let waitingForCallback = $state(false);
   let signingInWithPassword = $state(false);
+  const busy = $derived(startingOAuth || completingOAuth || signingInWithPassword);
 
   let errorMessage = $state("");
   let infoMessage = $state("");
@@ -111,8 +119,22 @@
     }
   }
 
+  function validateHomeserver(): boolean {
+    try {
+      const url = new URL(homeserverUrl.trim());
+      if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password) throw new Error();
+      homeserverUrl = homeserverUrl.trim();
+      return true;
+    } catch {
+      homeserverExpanded = true;
+      errorMessage = "Enter a valid homeserver URL, such as https://matrix.org.";
+      return false;
+    }
+  }
+
   async function startOAuthLogin(event: Event) {
     event.preventDefault();
+    if (busy || !validateHomeserver()) return;
     startingOAuth = true;
     waitingForCallback = false;
     errorMessage = "";
@@ -144,6 +166,7 @@
 
   async function startPasswordLogin(event: Event) {
     event.preventDefault();
+    if (busy || !validateHomeserver()) return;
     signingInWithPassword = true;
     waitingForCallback = false;
     errorMessage = "";
@@ -204,12 +227,16 @@
 
 </script>
 
-<main class="min-h-screen p-4 md:p-8 grid place-items-center">
-  <section class="card w-full max-w-5xl p-4 md:p-6 space-y-4 preset-outlined-surface-200-800 bg-surface-50-950">
-    <header class="space-y-1">
-      <p class="text-xs font-bold uppercase tracking-[0.2em] text-primary-600-400">Matrix Telegram</p>
-      <h1 class="h2">Matrix OAuth2 Login</h1>
-      <p class="text-surface-700-300">Desktop sign-in with browser-based Matrix SSO and callback completion.</p>
+<main class="flex h-dvh flex-col items-center overflow-y-auto bg-panel-alt p-4">
+  <section class="login-card my-auto w-full max-w-[340px] shrink-0 space-y-4 rounded-xl border border-hairline bg-panel p-5 shadow-sm">
+    <header class="flex items-center gap-3">
+      <div class="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5A8.5 8.5 0 0 1 10.5 3h2a8.5 8.5 0 0 1 8.5 8.5Z"/><path d="M7 9h10M7 13h6"/></svg>
+      </div>
+      <div>
+        <h1 class="text-lg font-semibold leading-tight">Sign in</h1>
+        <p class="mt-0.5 text-[11px] text-secondary">MatriXgram</p>
+      </div>
     </header>
 
     {#if loadingSession}
@@ -217,57 +244,13 @@
     {:else if authenticated}
       <p class="card p-3 text-sm bg-surface-100-900">Session active. Redirecting to chats...</p>
     {:else}
-      <section class="card p-4 space-y-4 preset-outlined-surface-200-800 bg-surface-100-900">
-        <h2 class="h4">Start Login</h2>
+      <section class="space-y-3" aria-label="Sign in">
 
-        <div class="flex gap-2" role="tablist" aria-label="Sign-in methods">
-          <button
-            class="btn"
-            class:preset-filled-primary-500={signInMethod === "oauth"}
-            class:preset-filled-surface-500={signInMethod !== "oauth"}
-            type="button"
-            role="tab"
-            aria-selected={signInMethod === "oauth"}
-            onclick={() => {
-              signInMethod = "oauth";
-              errorMessage = "";
-              infoMessage = "";
-            }}
-          >
-            OAuth
-          </button>
-          <button
-            class="btn"
-            class:preset-filled-primary-500={signInMethod === "password"}
-            class:preset-filled-surface-500={signInMethod !== "password"}
-            type="button"
-            role="tab"
-            aria-selected={signInMethod === "password"}
-            onclick={() => {
-              signInMethod = "password";
-              waitingForCallback = false;
-              errorMessage = "";
-              infoMessage = "";
-            }}
-          >
-            Password
-          </button>
-        </div>
-
-        <label class="label" for="homeserver">Homeserver URL</label>
-        <input
-          class="input"
-          id="homeserver"
-          type="url"
-          bind:value={homeserverUrl}
-          placeholder="https://matrix.org"
-          required
-        />
 
         {#if signInMethod === "oauth"}
-          <form class="space-y-3" onsubmit={startOAuthLogin}>
+          <form class="flex flex-col gap-3" onsubmit={startOAuthLogin}>
             <button
-              class="btn preset-filled-primary-500"
+              class="btn btn-primary w-full"
               type="submit"
               disabled={startingOAuth || completingOAuth || signingInWithPassword}
             >
@@ -278,7 +261,7 @@
               {:else if waitingForCallback}
                 Waiting for Browser Sign-In...
               {:else}
-                Start Matrix OAuth2
+                Continue with OAuth
               {/if}
             </button>
 
@@ -298,9 +281,9 @@
 
             {#if waitingForCallback && !browserOpened && authorizationUrl}
               <div class="space-y-2">
-                <label class="label" for="authUrl">Authorization URL</label>
+                <label class="block text-xs font-medium text-secondary" for="authUrl">Authorization URL</label>
                 <input
-                  class="input"
+                  class="input block w-full"
                   id="authUrl"
                   type="text"
                   readonly
@@ -314,9 +297,9 @@
             {#if waitingForCallback}
               {#if !browserOpened || !deepLinkRegistered}
                 <div class="space-y-2">
-                  <label class="label" for="callbackUrl">Callback URL</label>
+                  <label class="block text-xs font-medium text-secondary" for="callbackUrl">Callback URL</label>
                   <input
-                    class="input"
+                    class="input block w-full"
                     id="callbackUrl"
                     type="text"
                     bind:value={manualCallbackUrl}
@@ -340,48 +323,84 @@
               {/if}
             {/if}
           </form>
+          <button type="button" class="w-full text-sm font-medium text-accent hover:underline" disabled={busy}
+            onclick={() => { signInMethod = "password"; waitingForCallback = false; errorMessage = ""; infoMessage = ""; }}>
+            Use password instead
+          </button>
         {:else}
-          <form class="space-y-3" onsubmit={startPasswordLogin}>
-            <label class="label" for="username">Username</label>
-            <input
-              class="input"
-              id="username"
-              type="text"
-              bind:value={username}
-              required
-            />
-
-            <label class="label" for="password">Password</label>
-            <input
-              class="input"
-              id="password"
-              type="password"
-              bind:value={password}
-              required
-            />
+          <form class="flex flex-col gap-3" onsubmit={startPasswordLogin}>
+            <div class="grid grid-cols-[68px_minmax(0,1fr)] items-center gap-2">
+              <label class="text-xs font-medium" for="username">Username</label>
+              <input class="input block w-full" id="username" name="username" type="text" bind:value={username}
+                autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username / Matrix ID"
+                disabled={busy} required />
+            </div>
+            <div class="grid grid-cols-[68px_minmax(0,1fr)] items-center gap-2">
+              <label class="text-xs font-medium" for="password">Password</label>
+              <input class="input block w-full" id="password" name="password" type="password" bind:value={password}
+                autocomplete="current-password" placeholder="Your password" disabled={busy} required />
+            </div>
 
             <button
-              class="btn preset-filled-primary-500"
+              class="btn btn-primary w-full"
               type="submit"
               disabled={signingInWithPassword || startingOAuth || completingOAuth}
             >
               {#if signingInWithPassword}
                 Signing In...
               {:else}
-                Sign In with Password
+                Sign in
               {/if}
             </button>
           </form>
+          <div class="flex items-center gap-3 text-xs text-muted"><span class="h-px flex-1 bg-hairline"></span>or<span class="h-px flex-1 bg-hairline"></span></div>
+          <button type="button" class="btn w-full border-hairline bg-panel" disabled={busy}
+            onclick={() => { signInMethod = "oauth"; errorMessage = ""; infoMessage = ""; }}>
+            Sign in with OAuth
+          </button>
         {/if}
+
+        <details bind:open={homeserverExpanded} class="homeserver-selector">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md px-1 py-1 text-xs hover:bg-hover">
+            <span class="min-w-0 truncate text-secondary">Using <strong class="font-medium text-primary">{homeserverLabel}</strong></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="homeserver-chevron size-4 shrink-0 text-secondary" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="space-y-2 border-t border-hairline p-3">
+            <label class="block text-xs font-medium text-secondary" for="homeserver">Homeserver URL</label>
+            <input class="input block w-full" id="homeserver" type="url" bind:value={homeserverUrl}
+              placeholder="https://matrix.org" autocomplete="url" spellcheck="false" disabled={busy} required />
+          </div>
+        </details>
       </section>
     {/if}
 
     {#if errorMessage}
-      <p class="card p-3 text-sm preset-filled-error-500">{errorMessage}</p>
+      <p role="alert" class="rounded-xl bg-danger-soft p-3 text-sm text-danger">{errorMessage}</p>
     {/if}
 
     {#if infoMessage}
-      <p class="card p-3 text-sm preset-filled-success-500">{infoMessage}</p>
+      <p role="status" class="rounded-xl bg-accent-soft p-3 text-sm text-accent">{infoMessage}</p>
     {/if}
   </section>
 </main>
+
+<style>
+  .login-card :global(.input) {
+    min-height: 32px;
+    padding: 6px 9px;
+    border-radius: 7px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .login-card :global(.btn) {
+    min-height: 32px;
+    padding: 6px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+  }
+
+  .homeserver-selector summary::-webkit-details-marker { display: none; }
+  .homeserver-chevron { transition: transform 150ms ease; }
+  .homeserver-selector[open] .homeserver-chevron { transform: rotate(180deg); }
+  @media (prefers-reduced-motion: reduce) { .homeserver-chevron { transition: none; } }
+</style>

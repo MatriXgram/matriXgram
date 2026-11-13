@@ -57,6 +57,10 @@ pub const MAX_PAGE_SIZE: u32 = 100;
 pub fn build_messages_options(from: Option<String>, limit: Option<u32>) -> MessagesOptions {
     let mut options = MessagesOptions::new(Direction::Backward);
     options.from = from;
+    options.filter.lazy_load_options =
+        matrix_sdk::ruma::api::client::filter::LazyLoadOptions::Enabled {
+            include_redundant_members: true,
+        };
     options.limit = uint!(50);
     if let Some(limit) = limit {
         options.limit = limit.clamp(MIN_PAGE_SIZE, MAX_PAGE_SIZE).into();
@@ -93,6 +97,8 @@ mod tests {
             formatted_body: None,
             message_type: Some(String::from("m.image")),
             image_url: image_url.map(ToOwned::to_owned),
+            image_width: None,
+            image_height: None,
             thumbnail_url: None,
             custom_emojis: Vec::new(),
             reactions: Vec::new(),

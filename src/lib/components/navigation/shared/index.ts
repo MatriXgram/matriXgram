@@ -5,7 +5,7 @@ export {
   senderAvatarCache,
   avatarChangeEpoch,
   invalidateSenderAvatar,
-} from "./image-cache";
+} from "./image-cache.svelte";
 export {
   VIRTUAL_DMS_ROOT_ID,
   VIRTUAL_UNSPACED_ROOT_ID,

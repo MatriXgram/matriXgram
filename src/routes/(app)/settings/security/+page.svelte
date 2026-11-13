@@ -51,6 +51,16 @@
 
     void (async () => {
       await loadSecurity();
+      const params = new URLSearchParams(window.location.search);
+      const incomingUserId = params.get("verifyUser");
+      const incomingFlowId = params.get("verifyFlow");
+      if (incomingUserId && incomingFlowId) {
+        try {
+          activeVerificationFlow = await matrixGetVerificationFlow(incomingUserId, incomingFlowId);
+        } catch (error) {
+          verificationError = error instanceof Error ? error.message : "Failed to load incoming verification";
+        }
+      }
       unlisten = await listen<MatrixVerificationStateChangedEvent>(
         EVENT_VERIFICATION_STATE_CHANGED,
         (event) => {
@@ -280,7 +290,7 @@
   }
 </script>
 
-<section class="card p-4 preset-outlined-surface-200-800 bg-surface-100-900 space-y-4 max-h-[70vh] overflow-y-auto">
+<section class="card p-4 preset-outlined-surface-200-800 bg-surface-100-900 space-y-4">
   <header>
     <p class="text-xs font-bold uppercase tracking-[0.2em] text-primary-600-400">Security</p>
     <h2 class="h5">Verification and Recovery</h2>

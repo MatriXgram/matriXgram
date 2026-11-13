@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openUserProfile } from "$lib/chats/user-profile";
   import { matrixCopyImageToClipboard } from "$lib/chats/api";
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
   import type {
@@ -11,7 +12,6 @@
   import { toClockTime } from "../shared";
   import {
     MessageActionMenu,
-    MessageAvatar,
     MessageBody,
     MessageEncryptionState,
     MessageHeader,
@@ -24,6 +24,7 @@
 
   interface Props {
     message: TimelineMessage;
+    imageMessages: TimelineMessage[];
     roomId: string;
     onRetry?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
@@ -35,17 +36,17 @@
     currentUserId?: string | null;
     pickerCustomEmoji?: PickerCustomEmoji[];
     isSending?: boolean;
-    /// The previous message is from the same sender, so the bubble is drawn
-    /// without an avatar and without a sender name.
+    /// The sender name is omitted when continuing a sender group.
     grouped?: boolean;
-    /// The next message is from another sender, so this bubble carries the tail.
-    lastInGroup?: boolean;
+    /// The last message in a sender group gets the small incoming bubble tail.
+    groupEnd?: boolean;
     /// Show the sender name at the top of the bubble (group chats).
     showSenderName?: boolean;
   }
 
   let {
     message,
+    imageMessages,
     roomId,
     onRetry,
     onToggleReaction,
@@ -58,7 +59,7 @@
     pickerCustomEmoji = [],
     isSending = false,
     grouped = false,
-    lastInGroup = true,
+    groupEnd = false,
     showSenderName = false,
   }: Props = $props();
 
@@ -72,8 +73,11 @@
   /// The action list (reply, forward, copy) below the reaction bar. Its
   /// position is the single source of truth for "the menu is open": the
   /// outside click handler and the button toggle both go through it.
-  let actionMenuPosition = $state<{ x: number; y: number } | null>(null);
+  let actionMenuPosition = $state<{ x: number; y: number; originX?: "left" | "right"; originY?: "top" | "bottom" } | null>(null);
 
+  function showProfile(avatarUrl?: string | null) { openUserProfile({ roomId, userId: message.sender, displayName: message.senderDisplayName, avatarUrl }); }
+
+  const senderIdentity = $derived(message.sender);
   const isOwn = $derived(Boolean(currentUserId) && message.sender === currentUserId);
   $effect(() => {
     if (!actionMenuPosition && !reactionBarPosition) {
@@ -86,7 +90,12 @@
         return;
       }
 
-      if (optionsButtonElement?.contains(target)) {
+      // Keep popups mounted until their click handlers have run.
+      if (
+        optionsButtonElement?.contains(target) ||
+        (target instanceof Element &&
+          target.closest("[data-action-menu], [data-reaction-bar]"))
+      ) {
         return;
       }
 
@@ -125,29 +134,32 @@
 
     reactionPickerOpen = false;
     reactionPickerAnchor = null;
-    // Both popups sit above the cursor, the action list right below the
-    // reaction bar.
+    // Keep the action list anchored to the pointer and the reaction bar close
+    // above it. Flip the list if there is not enough room above the pointer.
     const barWidth = 250;
     const barHeight = 44;
     const menuWidth = 150;
-    const menuHeight = 132;
-
-    const x = Math.max(
-      8,
-      Math.min(event.clientX - barWidth / 2, window.innerWidth - barWidth - 8),
-    );
+    const menuHeight = 8 + (message.imageUrl ? 4 : 3) * 27;
+    // Anchor the pointer to the menu's bottom-left edge and expand upward.
+    const menuX = event.clientX + menuWidth + 8 <= window.innerWidth
+      ? event.clientX + 2
+      : Math.max(8, event.clientX - menuWidth - 2);
+    const opensAbove = event.clientY >= menuHeight + 8;
+    const menuY = opensAbove
+      ? event.clientY - menuHeight - 2
+      : event.clientY + 2;
+    const barX = Math.max(8, Math.min(menuX + (menuWidth - barWidth) / 2, window.innerWidth - barWidth - 8));
 
     reactionBarPosition = {
-      x,
-      y: Math.max(8, event.clientY - barHeight - menuHeight - 12),
+      x: barX,
+      y: Math.max(8, menuY - barHeight - 4),
     };
 
     actionMenuPosition = {
-      x: Math.max(
-        8,
-        Math.min(event.clientX - menuWidth / 2, window.innerWidth - menuWidth - 8),
-      ),
-      y: Math.max(8, event.clientY - menuHeight - 8),
+      x: menuX,
+      y: menuY,
+      originX: menuX >= event.clientX ? "left" : "right",
+      originY: opensAbove ? "bottom" : "top",
     };
   }
 
@@ -166,12 +178,15 @@
       : {
           x: Math.max(8, (rect?.right ?? 0) - 150),
           y: Math.max(8, (rect?.bottom ?? 0) + 6),
+          originX: "right",
+          originY: "top",
         };
 
   }
 
   function openFullReactionPicker() {
     const position = reactionBarPosition ?? { x: 120, y: 120 };
+    actionMenuPosition = null;
     reactionBarPosition = null;
     reactionPickerAnchor = { x: position.x, y: position.y };
     reactionPickerOpen = true;
@@ -217,76 +232,24 @@
 </script>
 
 <li
-  class="message-row relative flex w-full items-end gap-2 px-3 py-[1px]"
+  class="message-row group relative flex w-full items-end gap-2 px-3 py-[1px]"
   class:justify-end={isOwn}
   data-message-event-id={message.eventId ?? undefined}
   oncontextmenu={openReactionBar}
 >
-  <div class="flex w-8 shrink-0 justify-center self-end">
-    {#if !isOwn && !grouped}
-      <MessageAvatar {roomId} sender={message.sender} />
-    {/if}
-  </div>
 
-  <div class="flex min-w-0 max-w-[68%] flex-col" class:items-end={isOwn}>
+
+  <div class="flex min-w-0 max-w-[78%] flex-col" class:items-end={isOwn}>
     <div
       class="bubble {isOwn ? 'bubble-out' : 'bubble-in'}"
-      class:bubble-group-last={grouped && !lastInGroup}
-      class:bubble-tail={lastInGroup}
+      class:bubble-media={message.messageType === "m.image"}
+      class:message-tail-in={groupEnd && !isOwn}
+      class:message-tail-out={groupEnd && isOwn}
       class:message-mention={message.mentionsMe}
     >
-      <MessageHeader {message} show={showSenderName && !isOwn && !grouped} />
-
-      <ReplyQuote {message} {repliedMessage} {onJumpToMessage} />
-
-      <MessageBody {message} {roomId} onImageContextMenu={openImageOptionsMenuFromContext} />
-
-      {#if message.isDeleted}
-        <p class="text-[13px] italic opacity-70">Message deleted</p>
-      {/if}
-
-      <div
-        class="mt-0.5 flex items-center justify-end gap-1 text-[11px] leading-none opacity-70"
-        class:opacity-100={isOwn}
-      >
-        {#if message.editedAt}
-          <span class="italic">edited</span>
-        {/if}
-        {#if message.threadReplyCount > 0}
-          <span class="font-semibold">{message.threadReplyCount} replies</span>
-        {/if}
-        <span>{toClockTime(message.timestamp)}</span>
-        {#if message.sendState === "sending"}
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="size-3"
-            aria-label="Sending"
-          >
-            <title>Sending</title>
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-        {:else if isOwn}
-          <span aria-label={message.isRead ? "Read" : "Sent"}>{message.isRead ? "✓✓" : "✓"}</span>
-        {/if}
-      </div>
-    </div>
-
-    <MessageReactions {message} {currentUserId} {pickerCustomEmoji} onToggleReaction={onToggleReaction} />
-    <MessageSendState {message} {isSending} onRetry={onRetry} />
-    <MessageEncryptionState {message} />
-  </div>
-
   <button
     type="button"
-    class="absolute top-0 z-10 rounded px-1.5 py-0.5 text-xs text-secondary opacity-0 transition hover:bg-hover hover:text-primary focus-visible:opacity-100 group-hover:opacity-100"
-    class:left-10={isOwn}
-    class:right-10={!isOwn}
+    class="message-options absolute top-1.5 z-10 rounded px-1.5 py-0.5 text-xs text-secondary opacity-0 transition hover:bg-hover hover:text-primary focus-visible:opacity-100 group-hover:opacity-100"
     aria-label="Open message options"
     title="Message options"
     bind:this={optionsButtonElement}
@@ -294,6 +257,68 @@
   >
     ...
   </button>
+
+      <MessageHeader {message} onOpenProfile={() => showProfile()} show={showSenderName && !isOwn && !grouped} />
+
+      <ReplyQuote {message} {roomId} {repliedMessage} {onJumpToMessage} />
+
+      <MessageBody
+        {message}
+        {imageMessages}
+        {roomId}
+        hasSenderHeader={showSenderName && !isOwn && !grouped}
+        onImageContextMenu={openImageOptionsMenuFromContext}
+      />
+
+      {#if message.isDeleted}
+        <p class="text-[13px] italic opacity-70">Message deleted</p>
+      {/if}
+
+      <div
+        class="message-meta mt-1 flex min-w-0 flex-nowrap items-center justify-between gap-2 pb-1 text-[10px] leading-tight"
+      >
+        <MessageReactions {roomId} {message} {currentUserId} {pickerCustomEmoji} onToggleReaction={onToggleReaction} />
+        <div class="flex min-w-0 shrink flex-nowrap items-center justify-end gap-1 opacity-70" class:opacity-100={isOwn}>
+          {#if message.editedAt}
+            <span class="italic">edited</span>
+          {/if}
+          {#if message.threadReplyCount > 0}
+            <span class="font-semibold">{message.threadReplyCount} replies</span>
+          {/if}
+          <span class="min-w-0 max-w-[24rem] flex-1 truncate" title={message.sender}>{senderIdentity}</span>
+          <span class="shrink-0 whitespace-nowrap">{toClockTime(message.timestamp)}</span>
+          {#if message.sendState === "sending"}
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="size-3"
+              aria-label="Sending"
+            >
+              <title>Sending</title>
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 16 14" />
+            </svg>
+          {:else if isOwn}
+            <span aria-label={message.isRead ? "Read" : "Sent"} class="inline-flex shrink-0 text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
+                <path d="m4 12 4 4L19 5"/>
+                {#if message.isRead}<path d="m12 16 9-9"/>{/if}
+              </svg>
+            </span>
+          {/if}
+        </div>
+      </div>
+    </div>
+
+    <MessageSendState {message} {isSending} onRetry={onRetry} />
+    <MessageEncryptionState {message} />
+  </div>
+
+
 
   <ReactionQuickBar
     {message}

@@ -20,17 +20,18 @@ use types::rooms::{
 use types::{EventSink, Paths, RoomRefreshTrigger, RoomUpdateTriggerState};
 
 use crate::direct::direct_room_ids;
-use crate::persistence::{collect_and_store_chats, refresh_room_snapshot};
+use crate::persistence::collect_and_store_chats;
+use crate::sync::RoomSyncEngine;
 
 pub type RoomSnapshot = HashMap<String, MatrixChatSummary>;
 
-/// Preview text of the newest message in a room.
+/// Preview text of the newest message in a room, with its sender for context.
 ///
 /// Only rooms whose latest event is a plain `m.room.message` can be previewed
 /// from the sync response: an encrypted room's latest event is the ciphertext.
 /// The chat list falls back to the locally cached (decrypted) message for
 /// those.
-fn last_message_preview(room: &matrix_sdk::Room) -> Option<String> {
+async fn last_message_preview(room: &matrix_sdk::Room, current_user_id: Option<&str>) -> Option<String> {
     let matrix_sdk::latest_events::LatestEventValue::Remote(timeline) = room.latest_event() else {
         return None;
     };
@@ -49,13 +50,27 @@ fn last_message_preview(room: &matrix_sdk::Room) -> Option<String> {
         return None;
     }
 
-    Some(parsed.body)
+    let sender_name = if current_user_id == Some(parsed.sender.as_str()) {
+        String::from("You")
+    } else if let Ok(user_id) = protocol::parse_user_id(&parsed.sender) {
+        room.get_member_no_sync(&user_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|member| member.display_name().map(ToOwned::to_owned))
+            .unwrap_or_else(|| user_id.localpart().to_owned())
+    } else {
+        parsed.sender.clone()
+    };
+
+    Some(format!("{sender_name}: {}", parsed.body))
 }
 
 pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixChatSummary> {
     let joined_rooms = client.joined_rooms();
     let children_by_parent = children_room_ids_by_parent_room(&joined_rooms).await;
     let direct_room_ids = direct_room_ids(client).await;
+    let current_user_id = client.user_id().map(ToString::to_string);
     let mut chats = Vec::with_capacity(joined_rooms.len());
     let mut seen_room_ids = HashSet::new();
 
@@ -86,13 +101,19 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
             .cloned()
             .unwrap_or_default();
 
-        let last_message_preview = last_message_preview(room);
+        let last_message_preview = last_message_preview(room, current_user_id.as_deref()).await;
         let last_message_ts = room
             .latest_event_timestamp()
             // The SDK returns a `UInt` (an exact f64 integer), which converts
             // to `i64` rather than `u64`.
             .map(|timestamp| i64::from(timestamp.get()) as u64);
-        let unread_count = room.num_unread_messages().min(u64::from(u32::MAX)) as u32;
+        let unread_count = chat::receive::read::unread_count(
+            client,
+            &room_id_str,
+            room.num_unread_messages().min(u64::from(u32::MAX)) as u32,
+            last_message_ts,
+        )
+        .await;
         let is_pinned = room
             .tags()
             .await
@@ -268,7 +289,7 @@ pub struct RoomUpdateWorker {
 impl RoomUpdateWorker {
     /// Run the worker loop to completion. Spawn this on an async runtime.
     pub async fn run(mut self) {
-        let initial_sync_timeout = Duration::from_secs(config::INITIAL_ROOM_SYNC_TIMEOUT_SECONDS);
+        let initial_sync_timeout = Duration::ZERO;
         let long_poll_sync_timeout = Duration::from_secs(config::LONG_POLL_SYNC_TIMEOUT_SECONDS);
         let unauthenticated_delay = Duration::from_secs(config::WORKER_UNAUTH_SLEEP_SECONDS);
         let retry_initial_delay = Duration::from_millis(config::WORKER_RETRY_INITIAL_DELAY_MS);
@@ -277,12 +298,20 @@ impl RoomUpdateWorker {
         let retry_max_delay = Duration::from_millis(config::WORKER_RETRY_MAX_DELAY_MS);
 
         let mut previous_snapshot = RoomSnapshot::new();
+        let mut previous_generation = 0;
+        let mut sync_engine = None;
         let mut selected_room_id = None::<String>;
         let mut include_selected_messages = false;
         let mut retry_delay = None::<Duration>;
         let mut pending_trigger = None::<RoomRefreshTrigger>;
 
         loop {
+            // A room subscription belongs to one account/session. Apply new
+            // UI triggers only after discarding the previous session's selection.
+            if previous_generation != self.auth_state.generation() {
+                selected_room_id = None;
+                include_selected_messages = false;
+            }
             if let Some(trigger) = pending_trigger.take() {
                 apply_trigger(
                     trigger,
@@ -324,6 +353,8 @@ impl RoomUpdateWorker {
                 let pass = run_refresh_pass(
                     &deps,
                     &mut previous_snapshot,
+                    &mut previous_generation,
+                    &mut sync_engine,
                     selected_room_id.clone(),
                     include_selected_messages,
                     initial_sync_timeout,
@@ -398,19 +429,10 @@ impl RoomUpdateWorker {
                 }
             };
 
-            // An interrupted pass leaves the snapshot half-applied, and a
-            // pass that emitted room-added events before being cancelled would
-            // re-emit them next time. Rebuilding from the stored cache keeps the
-            // diff against the next complete snapshot meaningful.
+            // Room upserts are idempotent. Replay after interruption rather
+            // than seeding a snapshot whose rooms the frontend may never have seen.
             if interrupted {
-                include_selected_messages = false;
-                previous_snapshot = RoomSnapshot::new();
-
-                if let Ok(client) = self.auth_state.client() {
-                    for chat in collect_and_store_chats(&self.app_db, &client).await {
-                        previous_snapshot.insert(chat.room_id.clone(), chat);
-                    }
-                }
+                previous_snapshot.clear();
             }
         }
     }
@@ -448,6 +470,8 @@ pub fn start_room_update_worker(
 async fn run_refresh_pass(
     worker: &RefreshDeps<'_>,
     previous_snapshot: &mut RoomSnapshot,
+    previous_generation: &mut u64,
+    sync_engine: &mut Option<RoomSyncEngine>,
     selected_room_id: Option<String>,
     include_selected_messages: bool,
     initial_sync_timeout: Duration,
@@ -456,7 +480,6 @@ async fn run_refresh_pass(
     let paths = &worker.paths;
     let app_db = &worker.app_db;
     let auth_state = &worker.auth_state;
-    let event_sink = &worker.event_sink;
 
     auth_state
         .restore_client_from_disk_if_needed(paths, app_db)
@@ -464,11 +487,91 @@ async fn run_refresh_pass(
 
     let client = match auth_state.client() {
         Ok(client) => client,
-        Err(_) => return Ok(false),
+        Err(_) => {
+            previous_snapshot.clear();
+            *sync_engine = None;
+            return Ok(false);
+        }
     };
+    let generation = auth_state.generation();
+    if *previous_generation != generation {
+        *sync_engine = None;
+    }
+    reset_snapshot_for_session(previous_snapshot, previous_generation, generation);
+    let mut cancelled = auth_state.cancellation_receiver();
+    let refresh = refresh_client_rooms(
+        worker,
+        previous_snapshot,
+        &client,
+        generation,
+        sync_engine,
+        selected_room_id,
+        include_selected_messages,
+        initial_sync_timeout,
+        long_poll_sync_timeout,
+    );
+    let result = tokio::select! {
+        result = refresh => result,
+        _ = async {
+            match &mut cancelled {
+                Some(receiver) => { let _ = receiver.wait_for(|stop| *stop).await; },
+                None => std::future::pending::<()>().await,
+            }
+        } => Ok(false),
+    };
+    if matches!(&result, Ok(false)) {
+        *sync_engine = None;
+    }
+    if let Err(error) = &result {
+        if is_unknown_token_error(error) {
+            // Clear auth outside the cancellation select: clearing auth also
+            // fires that signal and must not cancel its own cleanup halfway.
+            *sync_engine = None;
+            handle_unknown_token_error(paths, app_db, auth_state, &client).await?;
+            previous_snapshot.clear();
+            return Ok(false);
+        }
+    }
+    result
+}
 
+fn reset_snapshot_for_session(snapshot: &mut RoomSnapshot, previous: &mut u64, current: u64) {
+    if *previous != current {
+        snapshot.clear();
+        *previous = current;
+    }
+}
+
+fn emit_sync_status(sink: &Arc<dyn EventSink>, client: &matrix_sdk::Client, error: Option<String>) {
+    if let Some(user_id) = client.user_id() {
+        if let Ok(payload) = serde_json::to_value(types::rooms::MatrixRoomSyncStatusEvent {
+            user_id: user_id.to_string(),
+            error,
+        }) {
+            let _ = sink.emit(event_paths::ROOM_SYNC_STATUS, &payload);
+        }
+    }
+}
+
+async fn refresh_client_rooms(
+    worker: &RefreshDeps<'_>,
+    previous_snapshot: &mut RoomSnapshot,
+    client: &matrix_sdk::Client,
+    generation: u64,
+    sync_engine: &mut Option<RoomSyncEngine>,
+    selected_room_id: Option<String>,
+    include_selected_messages: bool,
+    initial_sync_timeout: Duration,
+    long_poll_sync_timeout: Duration,
+) -> Result<bool, String> {
+    let app_db = &worker.app_db;
+    let auth_state = &worker.auth_state;
+    let event_sink = &worker.event_sink;
     if previous_snapshot.is_empty() {
         let local_chats = collect_and_store_chats(app_db, &client).await;
+        if auth_state.generation() != generation {
+            return Ok(false);
+        }
         if !local_chats.is_empty() {
             let mut local_snapshot = RoomSnapshot::new();
             for chat in local_chats {
@@ -491,23 +594,42 @@ async fn run_refresh_pass(
         long_poll_sync_timeout
     };
 
-    let current_snapshot = match refresh_room_snapshot(app_db, &client, sync_timeout).await {
-        Ok(snapshot) => snapshot,
+    if sync_engine.is_none() {
+        *sync_engine = Some(RoomSyncEngine::new(client).await?);
+    }
+    let changed_rooms = match sync_engine
+        .as_mut()
+        .unwrap()
+        .next(client, selected_room_id.as_deref(), sync_timeout)
+        .await
+    {
+        Ok(rooms) => rooms,
         Err(error) => {
-            if is_unknown_token_error(&error) {
-                warn!("Room refresh failed with unknown token; clearing session");
-                handle_unknown_token_error(paths, app_db, auth_state, &client).await?;
-            } else {
-                return Err(error);
-            }
-            return Ok(false);
+            emit_sync_status(event_sink, client, Some(error.clone()));
+            // A failed native Sliding Sync response (for example a transient
+            // proxy 502 with a non-Matrix body) can leave its stream unusable.
+            // Rebuild it on the next retry while keeping the room snapshot.
+            *sync_engine = None;
+            return Err(error);
         }
     };
+    let current_snapshot: RoomSnapshot = collect_and_store_chats(app_db, client)
+        .await
+        .into_iter()
+        .map(|chat| (chat.room_id.clone(), chat))
+        .collect();
+
+    if auth_state.generation() != generation {
+        previous_snapshot.clear();
+        return Ok(false);
+    }
 
     // Whether the room that is currently open changed during this pass. A new
     // message changes the room summary (last message, unread count), so this
     // is how the open timeline learns about messages sent by another client.
-    let mut selected_room_changed = false;
+    let mut selected_room_changed = changed_rooms
+        .iter()
+        .any(|id| Some(id.as_str()) == selected_room_id.as_deref());
 
     for (room_id, chat) in &current_snapshot {
         match previous_snapshot.get(room_id) {
@@ -546,6 +668,17 @@ async fn run_refresh_pass(
     if include_selected_messages || selected_room_changed {
         if let Some(room_id) = selected_room_id {
             if current_snapshot.contains_key(&room_id) {
+                if let Some(preview) =
+                    chat::receive::cached_room_messages(client, &room_id, 50).await
+                {
+                    let payload = serde_json::to_value(MatrixSelectedRoomMessagesEvent {
+                        room_id: preview.room_id,
+                        next_from: preview.next_from,
+                        messages: preview.messages,
+                    })
+                    .map_err(|error| error.to_string())?;
+                    let _ = event_sink.emit(event_paths::SELECTED_ROOM_MESSAGES, &payload);
+                }
                 if let Ok(response) =
                     fetch_room_messages_from_client(&client, &room_id, None, Some(50)).await
                 {
@@ -574,6 +707,7 @@ async fn run_refresh_pass(
     }
 
     *previous_snapshot = current_snapshot;
+    emit_sync_status(event_sink, client, None);
     Ok(true)
 }
 
@@ -624,5 +758,28 @@ async fn drain_triggers_and_wait(
             apply_trigger(trigger, selected_room_id, include_selected_messages);
             true
         }
+    }
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+    #[test]
+    fn a_new_session_replays_even_unchanged_rooms() {
+        let mut snapshot = RoomSnapshot::new();
+        let room: MatrixChatSummary = serde_json::from_value(serde_json::json!({
+            "roomId": "!room:example.org", "displayName": "Chat", "imageUrl": null,
+            "encrypted": false, "joinedMembers": 2, "kind": "room", "joined": true,
+            "isDirect": false, "childrenRoomIds": [], "lastMessagePreview": null,
+            "lastMessageTs": null, "unreadCount": 0, "isPinned": false, "isMuted": false
+        }))
+        .unwrap();
+        snapshot.insert(room.room_id.clone(), room);
+        let mut generation = 1;
+        reset_snapshot_for_session(&mut snapshot, &mut generation, 1);
+        assert_eq!(snapshot.len(), 1);
+        reset_snapshot_for_session(&mut snapshot, &mut generation, 3);
+        assert!(snapshot.is_empty());
+        assert_eq!(generation, 3);
     }
 }

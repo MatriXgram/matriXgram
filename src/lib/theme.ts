@@ -10,8 +10,6 @@
 
 import { get, writable } from "svelte/store";
 
-import { THEME_PRESETS } from "./themes/presets";
-
 export type ThemeMode = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
@@ -24,6 +22,10 @@ export interface ThemeSettings {
   paletteName: string | null;
   /** Overrides applied on top of the palette. */
   accent: string | null;
+  /** Background colour used by the quoted reply block. */
+  replyBackground: string | null;
+  /** Background colour used by quoted replies inside outgoing bubbles. */
+  replyOutgoingBackground: string | null;
   background: string | null;
   text: string | null;
   /** Base font size in pixels. */
@@ -36,22 +38,22 @@ const STORAGE_KEY = "matrix-telegram.theme.settings";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 /** The theme the app starts with; it can be changed in the settings. */
-const DEFAULT_PRESET = THEME_PRESETS[0];
-
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
-  mode: "dark",
-  palette: DEFAULT_PRESET?.colors ?? null,
-  paletteName: DEFAULT_PRESET?.name ?? null,
+  mode: "system",
+  palette: null,
+  paletteName: null,
   accent: null,
+  replyBackground: null,
+  replyOutgoingBackground: null,
   background: null,
   text: null,
   fontSize: null,
-  wallpaper: DEFAULT_PRESET?.wallpaper ?? null,
+  wallpaper: null,
 };
 
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 20;
-export const FONT_SIZE_DEFAULT = 14;
+export const FONT_SIZE_DEFAULT = 15;
 
 // ---------------------------------------------------------------------------
 // Colour helpers
@@ -213,7 +215,7 @@ export const TELEGRAM_COLOR_MAP: Record<string, string> = {
 };
 
 /** Every CSS variable the palette can touch. */
-const PALETTE_VARIABLES = [...new Set(Object.values(TELEGRAM_COLOR_MAP))];
+const PALETTE_VARIABLES = [...new Set([...Object.values(TELEGRAM_COLOR_MAP), "--tg-accent-soft"])];
 
 // ---------------------------------------------------------------------------
 // Settings store
@@ -288,6 +290,8 @@ export function applySettings(settings: ThemeSettings): void {
   const root = document.documentElement;
 
   root.setAttribute("data-theme", resolvedMode(settings));
+  root.style.removeProperty("--tg-reply-bg");
+  root.style.removeProperty("--tg-reply-out-bg");
 
   for (const variable of PALETTE_VARIABLES) {
     root.style.removeProperty(variable);
@@ -319,6 +323,20 @@ export function applySettings(settings: ThemeSettings): void {
 
 /** Apply the user's manual overrides on top of the palette. */
 function applyOverrides(settings: ThemeSettings, root: HTMLElement): void {
+  if (settings.replyBackground) {
+    const replyBackground = parseColor(settings.replyBackground);
+    if (replyBackground) {
+      root.style.setProperty("--tg-reply-bg", toHex(replyBackground));
+    }
+  }
+
+  if (settings.replyOutgoingBackground) {
+    const replyOutgoingBackground = parseColor(settings.replyOutgoingBackground);
+    if (replyOutgoingBackground) {
+      root.style.setProperty("--tg-reply-out-bg", toHex(replyOutgoingBackground));
+    }
+  }
+
   if (settings.accent) {
     const accent = parseColor(settings.accent);
     if (accent) {

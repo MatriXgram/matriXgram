@@ -32,6 +32,8 @@ const ALLOWED_TAGS: &[&str] = &[
     "code",
     "pre",
     "blockquote",
+    // Matrix rich replies wrap the quote fallback in this container.
+    "mx-reply",
     "h1",
     "h2",
     "h3",

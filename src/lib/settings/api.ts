@@ -1,3 +1,4 @@
+import { normalizeImageUrl } from "../chats/media";
 import { invokeMatrixCommand } from "../command-client";
 import type {
 	MatrixAddKeywordRequest,
@@ -40,7 +41,8 @@ import type {
 } from "./types";
 
 export async function matrixGetProfile(): Promise<MatrixProfileResponse> {
-	return invokeMatrixCommand<MatrixProfileResponse>("matrix_get_profile");
+	const profile = await invokeMatrixCommand<MatrixProfileResponse>("matrix_get_profile");
+	return { ...profile, avatarUrl: normalizeImageUrl(profile.avatarUrl) };
 }
 
 export async function matrixSetDisplayName(

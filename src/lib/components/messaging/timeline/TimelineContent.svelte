@@ -1,7 +1,11 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
 
   import MessageItem from "../message/MessageItem.svelte";
+  import MessageAvatar from "../message/MessageAvatar.svelte";
+  import { openUserProfile } from "$lib/chats/user-profile";
+  import { createTimelineGrouper } from "./timelineGroups";
   import type {
     ReplyToMessageHandler,
     RetryMessageHandler,
@@ -13,6 +17,7 @@
 
   interface Props {
     messages: TimelineMessage[];
+    unreadBoundaryId?: string | null;
     roomId: string;
     currentUserId: string | null;
     pickerCustomEmoji: PickerCustomEmoji[];
@@ -26,10 +31,12 @@
     onForward?: (message: TimelineMessage) => void;
     onTimelineElementChange?: (element: HTMLElement | null) => void;
     onProgrammaticScroll?: () => void;
+    onLoadJumpContext?: (eventId: string) => Promise<boolean>;
   }
 
   let {
     messages,
+    unreadBoundaryId = null,
     roomId,
     currentUserId,
     pickerCustomEmoji,
@@ -42,76 +49,21 @@
     onForward,
     onTimelineElementChange,
     onProgrammaticScroll,
+    onLoadJumpContext,
   }: Props = $props();
 
   let timelineElement: HTMLElement | null = $state(null);
   let highlightedMessageElement: HTMLElement | null = $state(null);
   let highlightTimeout: ReturnType<typeof setTimeout> | null = $state(null);
+  let scrollSettleTimeout: ReturnType<typeof setTimeout> | null = $state(null);
+  let pendingScrollCleanup: (() => void) | null = null;
   let ignoreNextGlobalPointerDown = $state(false);
 
   const wallpaper = $derived($themeSettings.wallpaper);
 
-  /// Two messages belong to the same group when they come from the same
-  /// sender, are less than five minutes apart and share a day. A grouped
-  /// message is drawn without an avatar and without a sender name, the way
-  /// Telegram collapses consecutive messages.
-  const GROUPING_WINDOW_MS = 5 * 60 * 1000;
-
-  type TimelineRow =
-    | { kind: "separator"; key: string; label: string }
-    | {
-        kind: "message";
-        key: string;
-        message: TimelineMessage;
-        grouped: boolean;
-        lastInGroup: boolean;
-      };
-
-  const rows = $derived.by(() => {
-    const result: TimelineRow[] = [];
-    let previous: TimelineMessage | null = null;
-    let previousDay: string | null = null;
-
-    for (const [index, message] of messages.entries()) {
-      const key = message.eventId ?? message.localId ?? `${index}-${message.timestamp ?? 0}`;
-      const day = message.timestamp ? new Date(message.timestamp).toDateString() : null;
-
-      if (day && day !== previousDay) {
-        result.push({ kind: "separator", key: `separator-${key}`, label: daySeparatorLabel(message.timestamp) });
-      }
-
-      const grouped = Boolean(
-        previous &&
-          previous.sender === message.sender &&
-          previous.timestamp &&
-          message.timestamp &&
-          day &&
-          day === previousDay &&
-          message.timestamp - previous.timestamp < GROUPING_WINDOW_MS,
-      );
-
-      result.push({ kind: "message", key, message, grouped, lastInGroup: true });
-      previous = message;
-      previousDay = day;
-    }
-
-    // The last message of a group carries the bubble tail; the ones above it
-    // are drawn as a stack.
-    for (let index = result.length - 1; index >= 0; index -= 1) {
-      const row = result[index];
-      if (row.kind !== "message") {
-        continue;
-      }
-
-      const next = result[index + 1];
-      const nextContinuesGroup =
-        next?.kind === "message" && next.grouped && next.message.sender === row.message.sender;
-
-      row.lastInGroup = !nextContinuesGroup;
-    }
-
-    return result;
-  });
+  const groupMessages = createTimelineGrouper();
+  const rows = $derived(groupMessages(messages));
+  const imageMessages = $derived(messages.filter((message) => message.messageType === "m.image" && message.imageUrl));
 
   const messagesByEventId = $derived.by(() => {
     const indexed = new Map<string, TimelineMessage>();
@@ -126,43 +78,79 @@
     return indexed;
   });
 
-  function jumpToMessage(eventId: string) {
-    if (!timelineElement) {
-      return;
-    }
+  async function jumpToMessage(eventId: string) {
+    const timeline = timelineElement;
+    if (!timeline) return;
 
-    const target = timelineElement.querySelector<HTMLElement>(
-      `[data-message-event-id="${eventId.replaceAll('"', '\\"')}"]`,
-    );
+    const selector =
+      `[data-message-event-id="${eventId.replaceAll('"', '\\"')}"]`;
+    let target = timeline.querySelector<HTMLElement>(selector);
 
     if (!target) {
-      return;
+      const loaded = await onLoadJumpContext?.(eventId);
+      if (!loaded) return;
+      await tick();
+      target = timeline.querySelector<HTMLElement>(selector);
+      if (!target) return;
     }
+
+    pendingScrollCleanup?.();
+    pendingScrollCleanup = null;
+    if (scrollSettleTimeout) clearTimeout(scrollSettleTimeout);
+    scrollSettleTimeout = null;
+    if (highlightTimeout) clearTimeout(highlightTimeout);
+    highlightTimeout = null;
+    if (highlightedMessageElement && highlightedMessageElement !== target) {
+      highlightedMessageElement.classList.remove("reply-target-highlight");
+    }
+
+    let highlightStarted = false;
+    const startHighlight = () => {
+      if (highlightStarted) return;
+      highlightStarted = true;
+      target.classList.add("reply-target-highlight");
+      highlightedMessageElement = target;
+    };
+
+    const finishScroll = () => {
+      pendingScrollCleanup?.();
+      pendingScrollCleanup = null;
+      if (scrollSettleTimeout) clearTimeout(scrollSettleTimeout);
+      scrollSettleTimeout = null;
+      startHighlight();
+      highlightTimeout = setTimeout(() => {
+        target.classList.remove("reply-target-highlight");
+        if (highlightedMessageElement === target) highlightedMessageElement = null;
+        highlightTimeout = null;
+      }, 2200);
+    };
+
+    let sawScroll = false;
+    const targetIsNearViewport = () => {
+      const targetRect = target.getBoundingClientRect();
+      const viewportRect = timeline.getBoundingClientRect();
+      return targetRect.bottom >= viewportRect.top - 220 && targetRect.top <= viewportRect.bottom + 220;
+    };
+    const handleTimelineScroll = () => {
+      sawScroll = true;
+      if (targetIsNearViewport()) startHighlight();
+      if (scrollSettleTimeout) clearTimeout(scrollSettleTimeout);
+      scrollSettleTimeout = setTimeout(finishScroll, 180);
+    };
+    timeline.addEventListener("scroll", handleTimelineScroll, { passive: true });
+    pendingScrollCleanup = () => timeline.removeEventListener("scroll", handleTimelineScroll);
+    if (targetIsNearViewport()) startHighlight();
 
     onProgrammaticScroll?.();
     target.scrollIntoView({ behavior: "smooth", block: "center" });
-
-    if (highlightedMessageElement && highlightedMessageElement !== target) {
-      highlightedMessageElement.classList.remove("bg-surface-100-900");
-      highlightedMessageElement.classList.remove("border-primary-500");
-    }
-
-    target.classList.add("bg-surface-100-900");
-    target.classList.add("border-primary-500");
-    highlightedMessageElement = target;
+    // If the target is already in view, there may be no scroll event to wait for.
+    scrollSettleTimeout = setTimeout(() => {
+      if (!sawScroll) finishScroll();
+    }, 300);
     ignoreNextGlobalPointerDown = true;
     queueMicrotask(() => {
       ignoreNextGlobalPointerDown = false;
     });
-
-    if (highlightTimeout) {
-      clearTimeout(highlightTimeout);
-    }
-
-    highlightTimeout = setTimeout(() => {
-      highlightedMessageElement?.classList.remove("border-primary-500");
-      highlightedMessageElement = null;
-    }, 750);
   }
 
   $effect(() => {
@@ -175,8 +163,22 @@
         return;
       }
 
-      highlightedMessageElement?.classList.remove("bg-surface-100-900");
+      highlightedMessageElement?.classList.remove("reply-target-highlight");
       highlightedMessageElement = null;
+      pendingScrollCleanup?.();
+      pendingScrollCleanup = null;
+      if (scrollSettleTimeout) {
+        clearTimeout(scrollSettleTimeout);
+        scrollSettleTimeout = null;
+      }
+      if (highlightTimeout) {
+        clearTimeout(highlightTimeout);
+        highlightTimeout = null;
+      }
+      if (highlightTimeout) {
+        clearTimeout(highlightTimeout);
+        highlightTimeout = null;
+      }
     };
 
     window.addEventListener("pointerdown", onGlobalPointerDown, true);
@@ -191,12 +193,14 @@
       if (highlightTimeout) {
         clearTimeout(highlightTimeout);
       }
+      pendingScrollCleanup?.();
+      if (scrollSettleTimeout) clearTimeout(scrollSettleTimeout);
     };
   });
 </script>
 
 <div
-  class="timeline-scroll relative flex-1 overflow-y-auto px-2 pb-3 min-h-0"
+  class="timeline-scroll relative flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3 min-h-0"
   bind:this={timelineElement}
   onscroll={onScroll}
 >
@@ -207,35 +211,54 @@
   {#if messages.length === 0}
     <p class="px-3 py-6 text-center text-sm text-secondary">No messages yet.</p>
   {:else}
-    <ul class="relative flex flex-col gap-0.5">
+    <ul class="timeline-messages relative flex flex-col gap-2">
       {#each rows as row (row.key)}
         {#if row.kind === "separator"}
           <li class="my-3 flex justify-center">
-            <span class="rounded-full bg-panel px-3 py-1 text-[11px] font-medium text-secondary shadow-sm">
-              {row.label}
+            <span class="day-separator rounded-full bg-panel font-medium">
+              {daySeparatorLabel(row.timestamp)}
             </span>
           </li>
         {:else}
-          <MessageItem
-            message={row.message}
-            {roomId}
-            grouped={row.grouped}
-            lastInGroup={row.lastInGroup}
-            showSenderName={showSenderNames}
-            repliedMessage={
-              row.message.inReplyToEventId
-                ? messagesByEventId.get(row.message.inReplyToEventId)
-                : undefined
-            }
-            onJumpToMessage={jumpToMessage}
-            onRetry={onRetryMessage}
-            {currentUserId}
-            {pickerCustomEmoji}
-            onToggleReaction={onToggleReaction}
-            onReplyToMessage={onReplyToMessage}
-            onForward={onForward}
-            isSending={isSending}
-          />
+          {@const isOwnGroup = Boolean(currentUserId) && row.sender === currentUserId}
+          <li class="sender-group" class:sender-group-own={isOwnGroup}>
+            {#if !isOwnGroup}
+              <div class="sender-group-avatar">
+                <MessageAvatar {roomId} sender={row.sender}
+                  onOpenProfile={(avatarUrl) => openUserProfile({
+                    roomId, userId: row.sender,
+                    displayName: row.messages[0].message.senderDisplayName,
+                    avatarUrl,
+                  })} />
+              </div>
+            {/if}
+            <ul class="sender-group-messages">
+              {#each row.messages as item, index (item.key)}
+                {#if unreadBoundaryId && item.message.eventId === unreadBoundaryId}
+                  <li data-unread-divider class="my-3 flex items-center gap-3 py-1 text-[11px] font-semibold text-accent" role="separator" aria-label="Unread messages">
+                    <span class="h-px flex-1 bg-accent/30"></span><span>Unread messages</span><span class="h-px flex-1 bg-accent/30"></span>
+                  </li>
+                {/if}
+                <MessageItem
+                  message={item.message}
+                  {imageMessages}
+                  {roomId}
+                  grouped={index > 0}
+                  groupEnd={index === row.messages.length - 1}
+                  showSenderName={showSenderNames}
+                  repliedMessage={item.message.inReplyToEventId ? messagesByEventId.get(item.message.inReplyToEventId) : undefined}
+                  onJumpToMessage={jumpToMessage}
+                  onRetry={onRetryMessage}
+                  {currentUserId}
+                  {pickerCustomEmoji}
+                  onToggleReaction={onToggleReaction}
+                  onReplyToMessage={onReplyToMessage}
+                  onForward={onForward}
+                  {isSending}
+                />
+              {/each}
+            </ul>
+          </li>
         {/if}
       {/each}
     </ul>
@@ -243,6 +266,29 @@
 </div>
 
 <style>
+  .sender-group {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    min-width: 0;
+    padding-left: 8px;
+  }
+  .sender-group-own { padding-left: 0; }
+  .sender-group-avatar {
+    position: sticky;
+    bottom: 4px;
+    flex: 0 0 32px;
+    align-self: flex-end;
+    z-index: 1;
+    padding-bottom: 1px;
+  }
+  .sender-group-messages {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
   .timeline-scroll {
     overflow-anchor: auto;
     background-color: var(--tg-panel-alt);

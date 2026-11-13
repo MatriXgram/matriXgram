@@ -16,5 +16,5 @@ export {
   verificationLabel,
 } from "./labels";
 
-export { replyTextPreview, stripMxReplyBlock } from "./helpers";
+export { replyFallback, replyTextPreview, stripMxReplyBlock, stripPlainReplyFallback } from "./helpers";
 export { default as ErrorBanner } from "./ErrorBanner.svelte";

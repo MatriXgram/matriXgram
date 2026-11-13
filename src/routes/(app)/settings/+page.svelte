@@ -54,8 +54,6 @@
 			const error = await logoutSession();
 			if (error) {
 				shellErrorMessage.set(error);
-			} else {
-				window.location.replace("/");
 			}
 		} finally {
 			loggingOut = false;
@@ -63,7 +61,7 @@
 	}
 </script>
 
-<section class="max-h-[70vh] space-y-4 overflow-y-auto">
+<section class="space-y-4">
 	<header>
 		<p class="text-xs font-bold uppercase tracking-[0.2em] text-accent">Settings</p>
 		<h2 class="h5">Account and Security</h2>
@@ -78,10 +76,7 @@
 		<p class="text-xs text-secondary">{settingsMessage}</p>
 	{/if}
 
-	<section class="card space-y-2 border border-hairline bg-panel p-3">
-		<h3 class="h6">Appearance</h3>
-		<ThemeSettings />
-	</section>
+	<ThemeSettings />
 
 	<section class="card space-y-2 border border-hairline bg-panel p-3">
 		<h3 class="h6">Sync</h3>

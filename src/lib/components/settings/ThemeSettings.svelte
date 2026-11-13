@@ -28,9 +28,17 @@
     return value || fallback;
   }
 
-  const accentValue = $derived(readColor("--tg-accent", "#3390ec"));
-  const backgroundValue = $derived(readColor("--tg-panel", "#ffffff"));
-  const textValue = $derived(readColor("--tg-text", "#0f1419"));
+  const accentValue = $derived.by(() => { void settings; return readColor("--tg-accent", "#3390ec"); });
+  const replyBackgroundValue = $derived.by(() => {
+    void settings;
+    return settings.replyBackground ?? (currentMode() === "dark" ? "#34475e" : "#e8f2ff");
+  });
+  const replyOutgoingBackgroundValue = $derived.by(() => {
+    void settings;
+    return settings.replyOutgoingBackground ?? (currentMode() === "dark" ? "#354f6d" : "#dceaff");
+  });
+  const backgroundValue = $derived.by(() => { void settings; return readColor("--tg-panel", "#ffffff"); });
+  const textValue = $derived.by(() => { void settings; return readColor("--tg-text", "#0f1419"); });
 
   const fontSize = $derived(settings.fontSize ?? FONT_SIZE_DEFAULT);
 
@@ -54,6 +62,16 @@
   function onAccentInput(event: Event) {
     const value = (event.currentTarget as HTMLInputElement).value;
     updateThemeSettings({ accent: value });
+  }
+
+  function onReplyBackgroundInput(event: Event) {
+    const value = (event.currentTarget as HTMLInputElement).value;
+    updateThemeSettings({ replyBackground: value });
+  }
+
+  function onReplyOutgoingBackgroundInput(event: Event) {
+    const value = (event.currentTarget as HTMLInputElement).value;
+    updateThemeSettings({ replyOutgoingBackground: value });
   }
 
   function onBackgroundInput(event: Event) {
@@ -215,6 +233,46 @@
   </div>
 
   <div class="space-y-1">
+    <p class="text-sm font-medium">Incoming reply block background</p>
+    <p class="text-[11px] text-secondary">Set the background for quoted messages in received bubbles.</p>
+    <div class="flex items-center gap-3">
+      <input
+        type="color"
+        class="h-9 w-12 cursor-pointer rounded border border-hairline bg-transparent"
+        value={replyBackgroundValue}
+        oninput={onReplyBackgroundInput}
+        aria-label="Reply block background colour"
+      />
+      <span class="font-mono text-xs text-secondary">{replyBackgroundValue}</span>
+      {#if settings.replyBackground}
+        <button type="button" class="btn btn-xs" onclick={() => updateThemeSettings({ replyBackground: null })}>
+          Reset
+        </button>
+      {/if}
+    </div>
+  </div>
+
+  <div class="space-y-1">
+    <p class="text-sm font-medium">Outgoing reply block background</p>
+    <p class="text-[11px] text-secondary">Set the background for quoted messages in your sent bubbles.</p>
+    <div class="flex items-center gap-3">
+      <input
+        type="color"
+        class="h-9 w-12 cursor-pointer rounded border border-hairline bg-transparent"
+        value={replyOutgoingBackgroundValue}
+        oninput={onReplyOutgoingBackgroundInput}
+        aria-label="Outgoing reply block background colour"
+      />
+      <span class="font-mono text-xs text-secondary">{replyOutgoingBackgroundValue}</span>
+      {#if settings.replyOutgoingBackground}
+        <button type="button" class="btn btn-xs" onclick={() => updateThemeSettings({ replyOutgoingBackground: null })}>
+          Reset
+        </button>
+      {/if}
+    </div>
+  </div>
+
+  <div class="space-y-1">
     <p class="text-sm font-medium">Background</p>
     <div class="flex items-center gap-3">
       <input
@@ -297,6 +355,6 @@
   {/if}
 
   <div class="border-t border-hairline pt-3">
-    <button type="button" class="btn btn-sm" onclick={resetThemeSettings}>Reset everything</button>
+    <button type="button" class="btn btn-sm" onclick={resetThemeSettings}>Reset appearance</button>
   </div>
 </section>

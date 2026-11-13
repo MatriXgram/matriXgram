@@ -56,6 +56,7 @@ pub async fn send_chat_message(
     picker_custom_emoji: &[MatrixPickerCustomEmoji],
     in_reply_to_event_id: Option<&str>,
     formatted_body_override: Option<&str>,
+    mentioned_user_ids: &[String],
 ) -> Result<MatrixSendChatMessageResponse, String> {
     let event_id = send_room_message_from_client(
         client,
@@ -64,6 +65,7 @@ pub async fn send_chat_message(
         picker_custom_emoji,
         in_reply_to_event_id,
         formatted_body_override,
+        mentioned_user_ids,
     )
     .await?;
 
@@ -85,6 +87,7 @@ pub async fn send_media_file(
     room_id: &str,
     file_path: &str,
     compress_media: bool,
+    caption: Option<&str>,
 ) -> Result<MatrixSendMediaFileResponse, String> {
     let result = send_media_file_from_client(
         client,
@@ -93,6 +96,7 @@ pub async fn send_media_file(
         room_id,
         file_path,
         compress_media,
+        caption,
     )
     .await?;
     Ok(MatrixSendMediaFileResponse {

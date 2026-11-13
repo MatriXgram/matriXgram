@@ -12,6 +12,8 @@ use types::chat::{
     MatrixChatMessageStreamEvent, MatrixCopyImageToClipboardRequest, MatrixDownloadFileRequest,
     MatrixDownloadFileResponse, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
     MatrixGetEmojiPacksResponse, MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse,
+    MatrixReplyEventRequest,
+    MatrixGetRoomMembersRequest, MatrixRoomMember,
     MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse, MatrixSendChatMessageRequest,
     MatrixSendChatMessageResponse, MatrixSendMediaFileRequest, MatrixSendMediaFileResponse,
     MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest,
@@ -87,6 +89,35 @@ pub async fn matrix_get_chat_messages(
 }
 
 #[tauri::command]
+pub async fn matrix_get_room_members(
+    request: MatrixGetRoomMembersRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<Vec<MatrixRoomMember>, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    let room_id = protocol::parse_room_id(&request.room_id)?;
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| format!("Room {room_id} is not available in current session"))?;
+    let members = room
+        .members(matrix_sdk::RoomMemberships::JOIN)
+        .await
+        .map_err(|error| format!("Failed to load room members: {error}"))?;
+
+    Ok(members
+        .into_iter()
+        .map(|member| MatrixRoomMember {
+            user_id: member.user_id().to_string(),
+            display_name: member
+                .display_name()
+                .unwrap_or_else(|| member.user_id().localpart())
+                .to_owned(),
+        })
+        .collect())
+}
+
+#[tauri::command]
 pub async fn matrix_stream_chat_messages(
     request: MatrixStreamChatMessagesRequest,
     auth_state: State<'_, Arc<AuthState>>,
@@ -103,6 +134,12 @@ pub async fn matrix_stream_chat_messages(
     let event_sink = event_sink.inner().clone();
     let client_for_task = client.clone();
     let request_for_task = request.clone();
+    if matches!(
+        request.load_kind,
+        types::chat::MatrixMessageLoadKind::Initial
+    ) {
+        let _ = trigger_state.enqueue_refresh(Some(request.room_id.clone()), false);
+    }
     let terminal_room_id = request.room_id.clone();
     let terminal_stream_id = request.stream_id.clone();
     let terminal_load_kind = request.load_kind;
@@ -164,6 +201,7 @@ pub async fn matrix_stream_chat_messages(
                 load_kind: terminal_load_kind,
                 sequence: 0,
                 message: None,
+                messages: None,
                 next_from: terminal_next_from,
                 done: true,
             }) {
@@ -242,6 +280,7 @@ pub async fn matrix_send_chat_message(
         &picker_custom_emoji,
         request.in_reply_to_event_id.as_deref(),
         request.formatted_body.as_deref(),
+        &request.mentioned_user_ids,
     )
     .await
     {
@@ -258,6 +297,7 @@ pub async fn matrix_send_chat_message(
                 &picker_custom_emoji,
                 request.in_reply_to_event_id.as_deref(),
                 request.formatted_body.as_deref(),
+                &request.mentioned_user_ids,
             )
             .await
         }
@@ -292,6 +332,7 @@ pub async fn matrix_send_media_file(
         room_id.as_str(),
         request.file_path.as_str(),
         request.compress_media,
+        request.caption.as_deref(),
     )
     .await;
 
@@ -431,4 +472,86 @@ pub async fn matrix_download_file(
     assets::save_file_to_path(&data.bytes, &destination)?;
 
     Ok(MatrixDownloadFileResponse { saved: true })
+}
+
+#[tauri::command]
+pub async fn matrix_get_user_profile(
+    request: MatrixGetUserAvatarRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<types::chat::MatrixUserProfileResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::profiles::get_user_profile(&client, &request.room_id, &request.user_id).await
+}
+
+#[tauri::command]
+pub async fn matrix_open_direct_chat(
+    request: types::chat::MatrixOpenDirectChatRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+    room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
+) -> Result<types::chat::MatrixOpenDirectChatResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    let room_id = chat::profiles::open_direct_chat(&client, &request.user_id).await?;
+    rooms::persistence::collect_and_store_chats(&app_db, &client).await;
+    let _ = room_update_trigger_state.enqueue_refresh(Some(room_id.clone()), false);
+    Ok(types::chat::MatrixOpenDirectChatResponse { room_id })
+}
+
+#[tauri::command]
+pub async fn matrix_get_room_read_state(
+    request: types::chat::MatrixRoomReadRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<types::chat::MatrixRoomReadState, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::receive::read::state(&client, &request.room_id).await
+}
+#[tauri::command]
+pub async fn matrix_mark_room_read(
+    request: types::chat::MatrixMarkReadRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+    room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
+) -> Result<(), String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::receive::read::mark(&client, &request).await?;
+    let _ = room_update_trigger_state.enqueue_refresh(None, false);
+    Ok(())
+}
+#[tauri::command]
+pub async fn matrix_get_read_context(
+    request: types::chat::MatrixReadContextRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+    room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
+) -> Result<types::chat::MatrixReadContextResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id.clone()), false);
+    chat::receive::read::context(&client, &app_db, &request.room_id, &request.event_id).await
+}
+#[tauri::command]
+pub async fn matrix_get_reply_event(
+    request: MatrixReplyEventRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<types::chat::MatrixChatMessage, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::receive::read::reply_event(&client, &request.room_id, &request.event_id).await
+}
+#[tauri::command]
+pub async fn matrix_get_newer_messages(
+    request: MatrixGetChatMessagesRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<types::chat::MatrixReadContextResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::receive::read::newer(&client, &request).await
 }

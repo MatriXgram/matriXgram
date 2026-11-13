@@ -46,6 +46,8 @@ pub struct MatrixReactionSummary {
     pub key: String,
     pub count: u32,
     pub senders: Vec<String>,
+    #[serde(default)]
+    pub participants: Vec<MatrixReactionParticipant>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -69,6 +71,10 @@ pub struct MatrixChatMessage {
     pub formatted_body: Option<String>,
     pub message_type: Option<String>,
     pub image_url: Option<String>,
+    #[serde(default)]
+    pub image_width: Option<u64>,
+    #[serde(default)]
+    pub image_height: Option<u64>,
     #[serde(default)]
     pub thumbnail_url: Option<String>,
     #[serde(default)]
@@ -116,6 +122,7 @@ pub struct MatrixChatMessageStreamEvent {
     pub load_kind: MatrixMessageLoadKind,
     pub sequence: u32,
     pub message: Option<MatrixChatMessage>,
+    pub messages: Option<Vec<MatrixChatMessage>>,
     pub next_from: Option<String>,
     pub done: bool,
 }
@@ -126,6 +133,19 @@ pub struct MatrixGetChatMessagesRequest {
     pub room_id: String,
     pub from: Option<String>,
     pub limit: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetRoomMembersRequest {
+    pub room_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixRoomMember {
+    pub user_id: String,
+    pub display_name: String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -151,6 +171,9 @@ pub struct MatrixSendChatMessageRequest {
     /// because it arrives from the client.
     #[serde(default)]
     pub formatted_body: Option<String>,
+    /// Matrix user IDs selected from the room mention picker.
+    #[serde(default)]
+    pub mentioned_user_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -159,6 +182,8 @@ pub struct MatrixSendMediaFileRequest {
     pub room_id: String,
     pub file_path: String,
     pub compress_media: bool,
+    #[serde(default)]
+    pub caption: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -267,4 +292,75 @@ pub struct MatrixGetUserAvatarResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixGetEmojiPacksResponse {
     pub custom_emoji: Vec<MatrixPickerCustomEmoji>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixUserProfileResponse {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub server_name: String,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixOpenDirectChatRequest {
+    pub user_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixOpenDirectChatResponse {
+    pub room_id: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixReactionParticipant {
+    pub user_id: String,
+    pub timestamp: Option<u64>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixRoomReadRequest {
+    pub room_id: String,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixRoomReadState {
+    pub room_id: String,
+    pub event_id: Option<String>,
+    pub unread_count: u32,
+    pub latest_timestamp: Option<u64>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixReadContextRequest {
+    pub room_id: String,
+    pub event_id: String,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixReplyEventRequest {
+    pub room_id: String,
+    pub event_id: String,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixReadContextResponse {
+    pub room_id: String,
+    pub messages: Vec<MatrixChatMessage>,
+    pub next_from: Option<String>,
+    pub next_to: Option<String>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixMarkReadRequest {
+    pub room_id: String,
+    pub event_id: String,
+    pub timestamp: u64,
+    pub remaining: u32,
+    pub previous_count: u32,
+    pub latest_timestamp: Option<u64>,
 }

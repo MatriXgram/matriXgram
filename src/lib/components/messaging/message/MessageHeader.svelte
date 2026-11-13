@@ -6,15 +6,16 @@
     /// Whether the sender name is shown. Telegram hides it for direct chats
     /// and for grouped messages of the same sender.
     show: boolean;
+    onOpenProfile?: () => void;
   }
 
-  let { message, show }: Props = $props();
+  let { message, show, onOpenProfile }: Props = $props();
 
-  const senderLabel = $derived(message.senderDisplayName ?? message.sender);
+  const senderLabel = $derived(message.senderDisplayName?.trim() || message.sender.replace(/^@/, "").split(":")[0]);
 </script>
 
 {#if show}
-  <span class="mb-0.5 block max-w-full truncate text-[13px] font-semibold leading-tight text-accent">
+  <button type="button" onclick={onOpenProfile} title={message.sender} class="cursor-pointer text-left hover:underline focus-visible:underline mb-0.5 block max-w-full truncate text-[14px] font-semibold leading-tight text-accent">
     {senderLabel}
-  </span>
+  </button>
 {/if}

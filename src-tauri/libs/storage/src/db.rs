@@ -605,9 +605,12 @@ impl AppDb {
                             encrypted,
                             decryption_status,
                             verification_status,
+                            sender_display_name,
+                            image_width,
+                            image_height,
                             updated_at
                         )
-                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, unixepoch())
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, unixepoch())
                         ",
                     )
                     .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
@@ -635,6 +638,9 @@ impl AppDb {
                             if message.encrypted { 1_i64 } else { 0_i64 },
                             decryption_status_to_db(message.decryption_status),
                             verification_status_to_db(message.verification_status),
+                            message.sender_display_name.as_deref(),
+                            message.image_width.map(|value| value as i64),
+                            message.image_height.map(|value| value as i64),
                         ])
                         .map_err(|error| format!("Failed to insert message cache row: {error}"))?;
                 }
@@ -648,7 +654,7 @@ impl AppDb {
         .await
     }
 
-    /// Body and timestamp of the newest cached message of a room.
+    /// Body, timestamp, and sender label of the newest cached message of a room.
     ///
     /// The chat list shows this as the preview line. It comes from the local
     /// cache rather than the server, so it is only known for rooms whose
@@ -656,13 +662,13 @@ impl AppDb {
     pub async fn load_latest_cached_message(
         &self,
         room_id: &str,
-    ) -> Result<Option<(String, Option<u64>)>, String> {
+    ) -> Result<Option<(String, Option<u64>, String, String)>, String> {
         let room_id = room_id.to_owned();
         self.run_blocking(move |connection| {
             connection
                 .query_row(
                     "
-                    SELECT body, timestamp
+                    SELECT body, timestamp, sender_display_name, sender
                     FROM message_cache
                     WHERE room_id = ?1
                     ORDER BY sequence DESC
@@ -670,11 +676,23 @@ impl AppDb {
                     ",
                     [&room_id],
                     |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<i64>>(1)?
-                                .map(|value| value.max(0) as u64),
-                        ))
+                        let body = row.get::<_, String>(0)?;
+                        let timestamp = row
+                            .get::<_, Option<i64>>(1)?
+                            .map(|value| value.max(0) as u64);
+                        let display_name = row.get::<_, Option<String>>(2)?;
+                        let sender = row.get::<_, String>(3)?;
+                        let sender_label = display_name
+                            .filter(|name| !name.trim().is_empty())
+                            .unwrap_or_else(|| {
+                                sender
+                                    .split(':')
+                                    .next()
+                                    .unwrap_or(&sender)
+                                    .trim_start_matches('@')
+                                    .to_owned()
+                            });
+                        Ok((body, timestamp, sender_label, sender))
                     },
                 )
                 .optional()
@@ -705,7 +723,7 @@ impl AppDb {
             let mut statement = connection
                 .prepare(
                     "
-                    SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, thumbnail_url, reactions, custom_emojis, encrypted, decryption_status, verification_status
+                    SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, thumbnail_url, reactions, custom_emojis, encrypted, decryption_status, verification_status, sender_display_name, image_width, image_height
                     FROM message_cache
                     WHERE room_id = ?1
                     ORDER BY sequence ASC
@@ -843,7 +861,9 @@ fn decode_cached_message(row: &rusqlite::Row<'_>) -> Result<MatrixChatMessage, S
     .map_err(|error| format!("Failed to parse cached custom emojis: {error}"))?;
 
     Ok(MatrixChatMessage {
-        sender_display_name: None,
+        sender_display_name: row
+            .get::<_, Option<String>>(14)
+            .map_err(|error| format!("Failed to decode cached sender display name: {error}"))?,
         edited_at: None,
         is_deleted: false,
         thread_root_id: None,
@@ -874,6 +894,14 @@ fn decode_cached_message(row: &rusqlite::Row<'_>) -> Result<MatrixChatMessage, S
         image_url: row
             .get::<_, Option<String>>(7)
             .map_err(|error| format!("Failed to decode cached image url: {error}"))?,
+        image_width: row
+            .get::<_, Option<i64>>(15)
+            .map_err(|error| format!("Failed to decode cached image width: {error}"))?
+            .map(|value| value.max(0) as u64),
+        image_height: row
+            .get::<_, Option<i64>>(16)
+            .map_err(|error| format!("Failed to decode cached image height: {error}"))?
+            .map(|value| value.max(0) as u64),
         thumbnail_url: row
             .get::<_, Option<String>>(8)
             .map_err(|error| format!("Failed to decode cached thumbnail url: {error}"))?,
@@ -961,6 +989,8 @@ mod tests {
             // NULL image_url is the common case that previously broke the load
             // path due to an off-by-one column index.
             image_url: None,
+            image_width: None,
+            image_height: None,
             thumbnail_url: None,
             custom_emojis: Vec::new(),
             reactions: Vec::new(),
@@ -976,12 +1006,14 @@ mod tests {
         let app_db = AppDb::initialize(&path, "test-secret").unwrap();
 
         let mut message = sample_message();
+        message.sender_display_name = Some(String::from("Alice 🌸"));
         message.thumbnail_url = Some(String::from("asset://localhost/poster.png"));
         message.custom_emojis = vec![MatrixCustomEmoji {
             shortcode: String::from("wave"),
             url: String::from("asset://localhost/wave.png"),
         }];
         message.reactions = vec![MatrixReactionSummary {
+            participants: Vec::new(),
             key: String::from("\u{1F44B}"),
             count: 2,
             senders: vec![
@@ -1008,6 +1040,7 @@ mod tests {
             cached.thumbnail_url.as_deref(),
             Some("asset://localhost/poster.png")
         );
+        assert_eq!(cached.sender_display_name.as_deref(), Some("Alice 🌸"));
         assert_eq!(cached.custom_emojis.len(), 1);
         assert_eq!(cached.custom_emojis[0].shortcode, "wave");
         assert_eq!(cached.reactions.len(), 1);

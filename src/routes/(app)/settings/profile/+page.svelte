@@ -4,7 +4,7 @@
 	import { open } from "@tauri-apps/plugin-dialog";
 
 	import { matrixGetProfile, matrixRemoveAvatar, matrixSetAvatar, matrixSetDisplayName } from "$lib/settings/api";
-import { invalidateSenderAvatar } from "$lib/components/navigation/shared/image-cache";
+import { invalidateSenderAvatar } from "$lib/components/navigation/shared/image-cache.svelte";
 
 	let loading = $state(true);
 	let savingName = $state(false);
@@ -113,7 +113,7 @@ import { invalidateSenderAvatar } from "$lib/components/navigation/shared/image-
 	});
 </script>
 
-<section class="card p-4 preset-outlined-surface-200-800 bg-surface-100-900 space-y-4 max-h-[70vh] overflow-y-auto">
+<section class="card p-4 preset-outlined-surface-200-800 bg-surface-100-900 space-y-4">
 	<header>
 		<p class="text-xs font-bold uppercase tracking-[0.2em] text-primary-600-400">Settings</p>
 		<h2 class="h5">Profile</h2>

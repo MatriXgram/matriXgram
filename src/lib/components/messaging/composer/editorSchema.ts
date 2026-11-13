@@ -7,7 +7,7 @@ export const composerSchema = new Schema({
   nodes: {
     doc: { content: "paragraph+" },
     paragraph: {
-      content: "(text|customEmoji)*",
+      content: "(text|customEmoji|mention)*",
       parseDOM: [{ tag: "p" }],
       toDOM: () => ["p", 0],
     },
@@ -73,6 +73,19 @@ export const composerSchema = new Schema({
         },
       ],
       leafText: (node) => node.attrs.token as string,
+    },
+    mention: {
+      inline: true,
+      group: "inline",
+      atom: true,
+      selectable: true,
+      draggable: false,
+      attrs: { userId: {}, displayName: {} },
+      toDOM: (node) => ["span", {
+        class: "composer-mention",
+        "data-user-id": node.attrs.userId,
+      }, `@${node.attrs.displayName}`],
+      leafText: (node) => `@${node.attrs.displayName}`,
     },
   },
 });

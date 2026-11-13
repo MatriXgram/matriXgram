@@ -13,6 +13,7 @@
     isExpanded: boolean;
     onSelect?: (roomId: string) => void;
     onToggleSpace?: (roomId: string) => void;
+    compact?: boolean;
   }
 
   let {
@@ -23,6 +24,7 @@
     isExpanded,
     onSelect,
     onToggleSpace,
+    compact = false,
   }: Props = $props();
 
   const isSpace = $derived(room.kind === "space");
@@ -35,6 +37,7 @@
 
   const contextMenuAvailable = $derived(!isVirtualRoomId(room.roomId));
   const settingsAvailable = $derived(!isVirtualRoomId(room.roomId) && room.joined);
+  const previewSenderSeparator = $derived(room.lastMessagePreview?.indexOf(": ") ?? -1);
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
 
@@ -161,13 +164,21 @@
   }
 </script>
 
-<li oncontextmenu={openContextMenu}>
+<li class={compact ? "flex justify-center py-0.5" : undefined} oncontextmenu={openContextMenu}>
+  {#if compact}
+    <button type="button" class={`relative grid size-11 cursor-pointer place-items-center rounded-full transition-all duration-150 hover:scale-105 hover:bg-accent-soft hover:ring-1 hover:ring-accent/40 ${isSelected ? "bg-primary-100-900 ring-1 ring-accent/40" : ""}`} title={`${room.displayName}${room.unreadCount ? ` · ${room.unreadCount} unread` : ""}`} aria-label={`Open ${room.displayName}`} aria-current={isSelected ? "true" : undefined} onclick={handleClick}>
+      <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} />
+      {#if room.unreadCount > 0}<span class="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-badge px-1 text-center text-[9px] font-semibold leading-4 text-badge-fg">{room.unreadCount > 99 ? "99+" : room.unreadCount}</span>{/if}
+    </button>
+  {:else}
   <div
-    class="flex items-center justify-between w-full p-2 rounded transition-colors"
+    class="chat-list-row flex items-center justify-between w-full transition-colors"
+    class:group-room-row={!room.isDirect}
+    aria-current={isSelected ? "true" : undefined}
     class:hover:bg-surface-200-800={!isSpace || hasChildren}
     class:opacity-90={isSpace}
     class:bg-primary-100-900={isSelected}
-    style={`padding-left: calc(0.5rem + ${indentation});`}
+      style={`padding-left: calc(0.625rem + ${indentation});`}
   >
     <button
       type="button"
@@ -176,12 +187,12 @@
       class:cursor-default={isSpace && !hasChildren}
       onclick={handleClick}
     >
-      <div class="flex items-center gap-2 min-w-0">
+      <div class="flex items-center gap-3 min-w-0">
         <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} />
 
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline justify-between gap-2">
-            <p class="min-w-0 flex-1 truncate font-medium" class:text-accent={room.isPinned}>
+            <p class="min-w-0 flex-1 truncate text-[13px] font-semibold" class:text-accent={room.isPinned}>
               {#if isSpace}
                 {isExpanded ? "▼" : "▶"}
               {/if}
@@ -196,7 +207,12 @@
           <div class="flex items-center justify-between gap-2">
             <p class="min-w-0 flex-1 truncate text-xs text-secondary">
               {#if room.lastMessagePreview}
-                {room.lastMessagePreview}
+                {#if previewSenderSeparator >= 0}
+                  <span class="text-primary">{room.lastMessagePreview.slice(0, previewSenderSeparator + 1)}</span>
+                  <span>{room.lastMessagePreview.slice(previewSenderSeparator + 2)}</span>
+                {:else}
+                  {room.lastMessagePreview}
+                {/if}
               {:else if room.kind === "space"}
                 {#if !room.joined}
                   Not joined
@@ -243,6 +259,7 @@
       {/if}
     </div>
   </div>
+  {/if}
 
   {#if isContextMenuOpen && contextMenuPosition}
     <div

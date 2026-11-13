@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Tauri binder: transport and setup only.
 //!
 //! This crate is the thin frontend adapter. All domain logic lives in the
@@ -101,7 +102,12 @@ pub fn run() {
                     verification::start_verification_state_watcher(
                         sink.clone(),
                         client.clone(),
-                        cancelled,
+                        cancelled.clone(),
+                    );
+                    verification::start_verification_request_watcher(
+                        sink.clone(),
+                        client.clone(),
+                        cancelled.clone(),
                     );
                     rooms::watch_avatar_changes(
                         &client,
@@ -109,6 +115,7 @@ pub fn run() {
                             app_db: app_db_for_avatars.clone(),
                             event_sink: sink.clone(),
                         },
+                        cancelled,
                     );
                 }));
             }
@@ -139,6 +146,12 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
+                .level_for("tracing::span", log::LevelFilter::Warn)
+                .level_for("matrix_sdk", log::LevelFilter::Warn)
+                .level_for("matrix_sdk_base", log::LevelFilter::Warn)
+                .level_for("matrix_sdk_crypto", log::LevelFilter::Warn)
+                .level_for("matrix_sdk_common", log::LevelFilter::Warn)
+                .level_for("matrix_sdk_sqlite", log::LevelFilter::Warn)
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
@@ -158,12 +171,21 @@ pub fn run() {
             commands::rooms::matrix_get_room_image,
             commands::rooms::matrix_get_chat_navigation,
             commands::rooms::matrix_join_room,
+            commands::rooms::matrix_search_public_rooms,
             commands::rooms::matrix_set_root_space_order,
             commands::rooms::matrix_trigger_room_update,
+            commands::chat::matrix_get_room_read_state,
+            commands::chat::matrix_mark_room_read,
+            commands::chat::matrix_get_read_context,
+            commands::chat::matrix_get_reply_event,
+            commands::chat::matrix_get_newer_messages,
             commands::chat::matrix_get_chat_messages,
+            commands::chat::matrix_get_room_members,
             commands::chat::matrix_stream_chat_messages,
             commands::chat::matrix_get_emoji_packs,
             commands::chat::matrix_get_user_avatar,
+            commands::chat::matrix_get_user_profile,
+            commands::chat::matrix_open_direct_chat,
             commands::chat::matrix_send_chat_message,
             commands::chat::matrix_send_media_file,
             commands::chat::matrix_cancel_media_transcode,

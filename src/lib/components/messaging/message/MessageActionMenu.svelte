@@ -4,7 +4,7 @@
   interface Props {
     message: TimelineMessage;
     /// Screen position of the menu, in pixels.
-    position: { x: number; y: number } | null;
+    position: { x: number; y: number; originX?: "left" | "right"; originY?: "top" | "bottom" } | null;
     onReply?: (message: TimelineMessage) => void;
     onForward?: (message: TimelineMessage) => void;
     onCopy?: (message: TimelineMessage) => void;
@@ -47,14 +47,14 @@
 {#if position}
   <div
     data-action-menu
-    class="fixed z-50 min-w-36 overflow-hidden rounded-xl border border-hairline bg-panel py-1 shadow-lg"
-    style={`left: ${position.x}px; top: ${position.y}px;`}
+    class="menu-pop-in fixed z-50 min-w-36 overflow-hidden rounded-md border border-hairline bg-panel/85 py-1 shadow-lg backdrop-blur-md"
+    style={`left: ${position.x}px; top: ${position.y}px; transform-origin: ${position.originY ?? "bottom"} ${position.originX ?? "left"};`}
     role="menu"
     aria-label="Message actions"
   >
     <button
       type="button"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-hover"
+      class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:bg-hover"
       role="menuitem"
       onclick={() => {
         onReply?.(message);
@@ -79,7 +79,7 @@
 
     <button
       type="button"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-hover"
+      class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:bg-hover"
       role="menuitem"
       onclick={() => {
         onForward?.(message);
@@ -104,7 +104,7 @@
 
     <button
       type="button"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+      class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
       role="menuitem"
       disabled={!message.body}
       onclick={() => {
@@ -131,7 +131,7 @@
     {#if message.imageUrl && onCopyImage}
       <button
         type="button"
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-hover"
+        class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:bg-hover"
         role="menuitem"
         onclick={() => {
           onCopyImage?.(message);

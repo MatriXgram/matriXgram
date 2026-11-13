@@ -83,6 +83,7 @@ export interface MatrixReactionSummary {
   key: string;
   count: number;
   senders: string[];
+  participants: MatrixReactionParticipant[];
 }
 
 export interface MatrixMediaTranscodeProgressEvent {
@@ -102,6 +103,8 @@ export interface MatrixChatMessage {
   formattedBody?: string | null;
   messageType?: string | null;
   imageUrl?: string | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
   thumbnailUrl?: string | null;
   customEmojis: MatrixCustomEmoji[];
   reactions: MatrixReactionSummary[];
@@ -125,6 +128,7 @@ export interface MatrixChatMessageStreamEvent {
   loadKind: MatrixMessageLoadKind;
   sequence: number;
   message?: MatrixChatMessage | null;
+  messages?: MatrixChatMessage[] | null;
   nextFrom?: string | null;
   done: boolean;
 }
@@ -148,12 +152,23 @@ export interface MatrixSendChatMessageRequest {
   body: string;
   inReplyToEventId?: string | null;
   formattedBody?: string | null;
+  mentionedUserIds?: string[];
+}
+
+export interface MatrixGetRoomMembersRequest {
+  roomId: string;
+}
+
+export interface MatrixRoomMember {
+  userId: string;
+  displayName: string;
 }
 
 export interface MatrixSendMediaFileRequest {
   roomId: string;
   filePath: string;
   compressMedia: boolean;
+  caption?: string | null;
 }
 
 export interface MatrixCancelMediaTranscodeRequest {
@@ -232,6 +247,63 @@ export interface MatrixGetEmojiPacksResponse {
   customEmoji: MatrixPickerCustomEmoji[];
 }
 
+export interface MatrixUserProfileResponse {
+  userId: string;
+  displayName?: string | null;
+  serverName: string;
+  avatarUrl?: string | null;
+}
+
+export interface MatrixOpenDirectChatRequest {
+  userId: string;
+}
+
+export interface MatrixOpenDirectChatResponse {
+  roomId: string;
+}
+
+export interface MatrixReactionParticipant {
+  userId: string;
+  timestamp?: number | null;
+}
+
+export interface MatrixRoomReadRequest {
+  roomId: string;
+}
+
+export interface MatrixRoomReadState {
+  roomId: string;
+  eventId?: string | null;
+  unreadCount: number;
+  latestTimestamp?: number | null;
+}
+
+export interface MatrixReadContextRequest {
+  roomId: string;
+  eventId: string;
+}
+
+export interface MatrixReplyEventRequest {
+  roomId: string;
+  eventId: string;
+}
+
+export interface MatrixReadContextResponse {
+  roomId: string;
+  messages: MatrixChatMessage[];
+  nextFrom?: string | null;
+  nextTo?: string | null;
+}
+
+export interface MatrixMarkReadRequest {
+  roomId: string;
+  eventId: string;
+  timestamp: number;
+  remaining: number;
+  previousCount: number;
+  latestTimestamp?: number | null;
+}
+
 export interface Paths {
 }
 
@@ -295,6 +367,30 @@ export interface MatrixJoinRoomResponse {
   roomId: string;
 }
 
+export interface MatrixSearchPublicRoomsRequest {
+  serverName: string;
+  searchTerm?: string | null;
+  since?: string | null;
+  limit?: number | null;
+}
+
+export interface MatrixPublicRoom {
+  roomId: string;
+  name?: string | null;
+  canonicalAlias?: string | null;
+  avatarUrl?: string | null;
+  topic?: string | null;
+  joinedMembers: number;
+  worldReadable: boolean;
+  directoryServer: string;
+}
+
+export interface MatrixSearchPublicRoomsResponse {
+  rooms: MatrixPublicRoom[];
+  nextBatch?: string | null;
+  totalRoomCountEstimate?: number | null;
+}
+
 export interface MatrixTriggerRoomUpdateRequest {
   selectedRoomId?: string | null;
   includeSelectedMessages: boolean;
@@ -316,6 +412,11 @@ export interface MatrixSelectedRoomMessagesEvent {
   roomId: string;
   nextFrom?: string | null;
   messages: MatrixChatMessage[];
+}
+
+export interface MatrixRoomSyncStatusEvent {
+  userId: string;
+  error?: string | null;
 }
 
 export interface MatrixProfileResponse {
@@ -362,6 +463,9 @@ export interface MatrixGetRoomSettingsRequest {
 export interface MatrixRoomSettingsResponse {
   roomId: string;
   kind: MatrixRoomKind;
+  topic?: string | null;
+  canonicalAlias?: string | null;
+  joinedMembers: number;
   notificationMode?: MatrixRoomNotificationMode | null;
   notificationModeUserDefined: boolean;
   isFavourite: boolean;

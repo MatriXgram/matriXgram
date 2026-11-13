@@ -43,6 +43,20 @@ pub(super) async fn fetch_room_messages_impl<M: MediaResolver>(
         .await
         .map_err(|error| format!("Failed to read room messages: {error}"))?;
 
+    let sender_names: std::collections::HashMap<String, String> = response
+        .state
+        .iter()
+        .filter_map(|raw| raw.deserialize_as::<serde_json::Value>().ok())
+        .filter(|event| {
+            event.get("type").and_then(serde_json::Value::as_str) == Some("m.room.member")
+        })
+        .filter_map(|event| {
+            Some((
+                event.get("state_key")?.as_str()?.to_owned(),
+                event.pointer("/content/displayname")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect();
     let raw_event_count = response.chunk.len();
     // One accumulator per pagination run, not per page: it has to outlive the
     // page a reaction was parsed in, because its target is in an older page.
@@ -95,6 +109,14 @@ pub(super) async fn fetch_room_messages_impl<M: MediaResolver>(
         }
     }
 
+    for message in &mut messages {
+        if let Some(name) = sender_names
+            .get(&message.sender)
+            .filter(|name| !name.trim().is_empty())
+        {
+            message.sender_display_name = Some(name.clone());
+        }
+    }
     debug!(
         "Fetched {} chat messages from {} raw events (utd_present={})",
         messages.len(),

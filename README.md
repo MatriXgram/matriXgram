@@ -1,4 +1,4 @@
-# Matrix Telegram
+# MatriXgram
 
 A Telegram-like desktop client for the [Matrix](https://matrix.org/) protocol,
 built with Tauri (Rust core + SvelteKit UI).

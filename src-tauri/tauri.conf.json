@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Matrix Telegram",
+  "productName": "MatriXgram",
   "version": "0.1.0",
   "identifier": "app.matrix.telegram",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Matrix Telegram",
+        "title": "MatriXgram",
         "width": 900,
         "height": 600,
         "minWidth": 780,

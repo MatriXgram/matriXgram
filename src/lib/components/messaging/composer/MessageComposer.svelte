@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { matrixGetRoomMembers } from "$lib/chats/api";
+  import type { MatrixRoomMember } from "$lib/chats/types";
   import { getShortcodeSuggestions } from "$lib/emoji/picker";
   import type { EmojiShortcodeSuggestion, PickerCustomEmoji } from "$lib/emoji/picker";
   import { replyTextPreview as deriveReplyTextPreview, stripMxReplyBlock } from "../shared";
@@ -7,10 +9,12 @@
   import { ShortcodeSuggestions } from "../composer-emoji";
   import { EmojiPickerPopover } from "../composer-emoji";
   import { ComposerEditor } from ".";
-  import type { ComposerEditorHandle, ShortcodeRange, SuggestionPosition } from ".";
+  import MentionAvatar from "./MentionAvatar.svelte";
+  import type { ComposerEditorHandle, ComposerMention, ShortcodeRange, SuggestionPosition } from ".";
 
   interface Props {
     draft: string;
+    roomId: string;
     error: string;
     isSending: boolean;
     isDisabled: boolean;
@@ -18,7 +22,7 @@
     pickerCustomEmoji?: PickerCustomEmoji[];
     replyToMessage?: TimelineMessage | null;
     focusNonce?: number;
-    onSubmit?: (draft: string) => void;
+    onSubmit?: (draft: string, mentions?: ComposerMention[]) => void;
     onDraftChange?: (draft: string) => void;
     onClearReply?: () => void;
     onChooseAttachment?: () => void;
@@ -27,6 +31,7 @@
 
   let {
     draft,
+    roomId,
     error,
     isSending,
     isDisabled,
@@ -47,6 +52,27 @@
   let draftShortcodeRange = $state<ShortcodeRange | null>(null);
   let suggestionPopupPosition = $state<SuggestionPosition | null>(null);
   let lastAppliedFocusNonce = $state(0);
+  let roomMembers = $state<MatrixRoomMember[]>([]);
+  let selectedMentionIndex = $state(0);
+  let dismissedMentionQuery = $state("");
+  let mentionListElement = $state<HTMLDivElement | null>(null);
+
+  const mentionQuery = $derived.by(() => {
+    const beforeCursor = draft.slice(0, cursorPosition);
+    const match = /(?:^|\s)@([^\s@]*)$/u.exec(beforeCursor);
+    if (!match) return null;
+    const query = match[1] ?? "";
+    const start = cursorPosition - query.length - 1;
+    return { query, start, end: cursorPosition, key: `${start}:${query}` };
+  });
+
+  const mentionSuggestions = $derived.by(() => {
+    if (!mentionQuery || mentionQuery.key === dismissedMentionQuery) return [];
+    const query = mentionQuery.query.toLocaleLowerCase();
+    return roomMembers
+      .filter((member) => member.displayName.toLocaleLowerCase().includes(query) || member.userId.toLocaleLowerCase().includes(query))
+      .sort((left, right) => left.displayName.localeCompare(right.displayName, undefined, { sensitivity: "base" }));
+  });
 
   let emojiPickerOpen = $state(false);
   let emojiPickerAnchor = $state<{ x: number; y: number } | null>(null);
@@ -61,6 +87,29 @@
     }
 
     return stripMxReplyBlock(replyToMessage.formattedBody);
+  });
+
+  $effect(() => {
+    let cancelled = false;
+    roomMembers = [];
+    if (!roomId) return;
+    void matrixGetRoomMembers(roomId).then((members) => {
+      if (!cancelled) roomMembers = members;
+    }).catch(() => {
+      if (!cancelled) roomMembers = [];
+    });
+    return () => { cancelled = true; };
+  });
+
+  $effect(() => {
+    mentionQuery?.key;
+    selectedMentionIndex = 0;
+  });
+
+  $effect(() => {
+    selectedMentionIndex;
+    const selected = mentionListElement?.querySelector<HTMLElement>('[aria-selected="true"]');
+    selected?.scrollIntoView({ block: "nearest" });
   });
 
   $effect(() => {
@@ -86,7 +135,7 @@
   function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     if (!isSending && draft.trim().length > 0) {
-      onSubmit?.(draft);
+      onSubmit?.(draft, composerEditor?.getMentions() ?? []);
       clearDraft();
     }
   }
@@ -121,10 +170,44 @@
   }
 
   function handleEditorSubmit(nextDraft: string) {
-    onSubmit?.(nextDraft);
+    onSubmit?.(nextDraft, composerEditor?.getMentions() ?? []);
     draftShortcodeSuggestions = [];
     draftShortcodeRange = null;
     suggestionPopupPosition = null;
+  }
+
+  function applyMentionSuggestion(member: MatrixRoomMember) {
+    if (!mentionQuery) return;
+    composerEditor?.insertMention(mentionQuery.start, mentionQuery.end, member.userId, member.displayName);
+    dismissedMentionQuery = "";
+  }
+
+  function handleMentionKeyDown(event: KeyboardEvent): boolean {
+    if (mentionSuggestions.length === 0) {
+      if (event.key === "Escape" && mentionQuery) {
+        dismissedMentionQuery = mentionQuery.key;
+        return true;
+      }
+      return false;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      selectedMentionIndex = (selectedMentionIndex + direction + mentionSuggestions.length) % mentionSuggestions.length;
+      return true;
+    }
+    if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      const member = mentionSuggestions[selectedMentionIndex];
+      if (member) applyMentionSuggestion(member);
+      return true;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      dismissedMentionQuery = mentionQuery?.key ?? "";
+      return true;
+    }
+    return false;
   }
 
   /// Right click in the input opens the emoji table, the way Telegram does.
@@ -159,7 +242,7 @@
     stroke-width="2"
     stroke-linecap="round"
     stroke-linejoin="round"
-    class="size-4"
+    class="size-6"
     aria-hidden="true"
   >
     <circle cx="12" cy="12" r="10" />
@@ -170,7 +253,7 @@
 {/snippet}
 
 <form
-  class="relative flex flex-col rounded-2xl border border-hairline bg-panel px-2 py-1.5"
+  class="message-composer relative flex flex-col"
   onsubmit={handleSubmit}
 >
   <ErrorBanner {error} class="mb-2 text-sm preset-filled-error-500 card p-2" />
@@ -190,7 +273,7 @@
               loading="lazy"
               class="h-7 w-7 rounded border border-hairline object-cover"
             />
-            <span class="truncate">Image</span>
+            <span class="truncate">{replyTextPreview}</span>
           </div>
         {:else if replyFormattedPreview}
           <div class="reply-formatted-preview mt-1 text-[13px]">
@@ -210,10 +293,10 @@
     </div>
   {/if}
 
-  <div class="flex items-end gap-1">
+  <div class="composer-controls flex">
     <button
       type="button"
-      class="btn btn-sm shrink-0"
+      class="composer-tool btn shrink-0"
       disabled={isDisabled || isSending}
       title="Attach a file"
       aria-label="Attach a file"
@@ -226,7 +309,7 @@
         stroke-width="2"
         stroke-linecap="round"
         stroke-linejoin="round"
-        class="size-4"
+        class="size-6"
         aria-hidden="true"
       >
         <path
@@ -253,6 +336,7 @@
         {pickerCustomEmoji}
         shortcodeRange={draftShortcodeRange}
         shortcodeSuggestionCount={draftShortcodeSuggestions.length}
+        onMentionKeyDown={handleMentionKeyDown}
         onDraftChange={handleEditorDraftChange}
         onCursorChange={(position) => {
           cursorPosition = position;
@@ -268,15 +352,18 @@
     <EmojiPickerPopover
       bind:open={emojiPickerOpen}
       icon={emojiIcon}
-      buttonClass="btn btn-sm shrink-0"
+      buttonClass="composer-tool btn shrink-0"
       anchor={emojiPickerAnchor}
+      hoverToOpen={true}
+      alignRight={true}
       pickerCustomEmoji={pickerCustomEmoji}
       onSelect={insertEmoji}
     />
 
     <button
       type="submit"
-      class="btn btn-sm btn-primary shrink-0"
+      class="composer-send btn shrink-0"
+      class:composer-send-active={draft.trim().length > 0 && !isDisabled && !isSending}
       disabled={isDisabled || isSending || draft.trim().length === 0}
       title="Send"
       aria-label="Send message"
@@ -289,7 +376,7 @@
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
-          class="size-4 animate-spin"
+          class="size-6 animate-spin"
           aria-hidden="true"
         >
           <path d="M21 12a9 9 0 1 1-6.22-8.56" />
@@ -302,7 +389,7 @@
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
-          class="size-4"
+          class="size-6"
           aria-hidden="true"
         >
           <line x1="22" y1="2" x2="11" y2="13" />
@@ -320,16 +407,37 @@
       onApply={applyShortcodeSuggestion}
     />
   {/if}
+
+  {#if mentionSuggestions.length > 0}
+    <div bind:this={mentionListElement} class="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-64 w-auto overflow-y-auto rounded-xl border border-hairline bg-panel p-1 shadow-xl" role="listbox" aria-label="Room members">
+      {#each mentionSuggestions as member, index (member.userId)}
+        <button
+          type="button"
+          role="option"
+          aria-selected={index === selectedMentionIndex}
+          class={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition ${index === selectedMentionIndex ? "bg-accent-soft text-accent" : "text-primary hover:bg-hover"}`}
+          onpointerdown={(event) => event.preventDefault()}
+          onclick={() => applyMentionSuggestion(member)}
+        >
+          <MentionAvatar roomId={roomId} userId={member.userId} displayName={member.displayName} />
+          <span class="min-w-0 flex-1 truncate text-sm">{member.displayName}</span>
+          <span class="max-w-[48%] shrink-0 truncate text-[11px] text-muted">{member.userId}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 </form>
 <style>
   #message-draft :global(.composer-editor) {
     font-size: 1em;
     line-height: 1.35;
     outline: none;
-    min-height: 1.4rem;
-    max-height: 9rem;
-    padding-top: 0.15rem;
-    padding-bottom: 0.15rem;
+    min-height: 30px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    max-height: 6rem;
+    padding: 2px 0 0;
     height: auto;
   }
   #message-draft :global(.composer-editor p) {
@@ -355,6 +463,14 @@
     max-width: 100%;
     max-height: 1.7em;
     margin-inline: 0.04rem;
+  }
+  #message-draft :global(.composer-mention) {
+    display: inline;
+    border-radius: 0.3rem;
+    background: color-mix(in oklab, var(--color-accent, #6889ff) 20%, transparent);
+    color: var(--color-accent, #6889ff);
+    font-weight: 600;
+    padding-inline: 0.08em;
   }
 
   .reply-formatted-preview {

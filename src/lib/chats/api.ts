@@ -1,6 +1,7 @@
 import { invokeMatrixCommand } from "../command-client";
 import { normalizeChatSummaryImageUrl, normalizeImageUrl, normalizeMessageImageUrl } from "./media";
 import type {
+  MatrixChatMessage,
   MatrixChatSummary,
   MatrixGetEmojiPacksResponse,
   MatrixGetChatNavigationRequest,
@@ -10,6 +11,8 @@ import type {
   MatrixGetUserAvatarResponse,
   MatrixGetChatMessagesRequest,
   MatrixGetChatMessagesResponse,
+  MatrixGetRoomMembersRequest,
+  MatrixRoomMember,
   MatrixPickerCustomEmoji,
   MatrixSendChatMessageRequest,
   MatrixSendChatMessageResponse,
@@ -35,6 +38,12 @@ import type {
   MatrixTriggerRoomUpdateRequest,
   MatrixTriggerRoomUpdateResponse,
 } from "./types";
+
+export async function matrixGetRoomMembers(roomId: string): Promise<MatrixRoomMember[]> {
+  return invokeMatrixCommand<MatrixRoomMember[]>("matrix_get_room_members", {
+    request: { roomId } satisfies MatrixGetRoomMembersRequest,
+  });
+}
 
 type PickerAssets = {
   customEmoji: MatrixPickerCustomEmoji[];
@@ -265,3 +274,100 @@ export async function matrixJoinRoom(
   return await invokeMatrixCommand<{ roomId: string }>("matrix_join_room", { request: { roomIdOrAlias, serverNames }});
 }
 
+type PublicRoomsResult = import("./types").MatrixSearchPublicRoomsResponse;
+const publicRoomsCache = new Map<string, PublicRoomsResult>();
+const publicRoomsRequests = new Map<string, Promise<PublicRoomsResult>>();
+
+function publicRoomsKey(serverName: string, searchTerm = "") {
+  return `${serverName.trim().toLowerCase()}\n${searchTerm.trim().toLowerCase()}`;
+}
+
+export function getCachedPublicRooms(serverName: string, searchTerm = "") {
+  return publicRoomsCache.get(publicRoomsKey(serverName, searchTerm)) ?? null;
+}
+
+export async function matrixSearchPublicRooms(input: import("./types").MatrixSearchPublicRoomsRequest) {
+  const key = publicRoomsKey(input.serverName, input.searchTerm ?? "");
+  const requestKey = `${key}\n${input.since ?? ""}`;
+  const pending = publicRoomsRequests.get(requestKey);
+  if (pending) return pending;
+
+  const request = invokeMatrixCommand<PublicRoomsResult>("matrix_search_public_rooms", { request: input })
+    .then((response) => ({
+      ...response,
+      rooms: response.rooms.map((room) => ({ ...room, avatarUrl: normalizePublicRoomAvatar(room.avatarUrl) })),
+    }))
+    .then((response) => {
+      if (!input.since) publicRoomsCache.set(key, response);
+      return response;
+    })
+    .finally(() => publicRoomsRequests.delete(requestKey));
+
+  publicRoomsRequests.set(requestKey, request);
+  return request;
+}
+
+export function primeMatrixPublicRooms(serverName: string) {
+  if (!serverName || getCachedPublicRooms(serverName)) return;
+  void matrixSearchPublicRooms({ serverName, limit: 20 }).catch(() => {});
+}
+
+function normalizePublicRoomAvatar(imageUrl: string | null | undefined): string | null {
+  if (!imageUrl?.startsWith("mxc://")) return normalizeImageUrl(imageUrl);
+  const match = /^mxc:\/\/([^/]+)\/(.+)$/.exec(imageUrl);
+  if (!match) return null;
+  const [, server, mediaId] = match;
+  const localServer = /^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0)(:\d+)?$/i.test(server);
+  const scheme = localServer ? "http" : "https";
+  // The authenticated v1 download route cannot be used by an <img> request
+  // because the browser doesn't have the Matrix access token. Use the legacy
+  // public download route for public room avatars.
+  return `${scheme}://${server}/_matrix/media/v3/thumbnail/${encodeURIComponent(server)}/${encodeURIComponent(mediaId)}?width=96&height=96&method=crop&allow_redirect=true`;
+}
+
+
+export async function matrixGetUserProfile(roomId: string, userId: string) {
+  const profile = await invokeMatrixCommand<import("./types").MatrixUserProfileResponse>(
+    "matrix_get_user_profile", { request: { roomId, userId } },
+  );
+  return { ...profile, avatarUrl: normalizeImageUrl(profile.avatarUrl) };
+}
+
+export async function matrixOpenDirectChat(userId: string) {
+  return invokeMatrixCommand<import("./types").MatrixOpenDirectChatResponse>(
+    "matrix_open_direct_chat", { request: { userId } },
+  );
+}
+
+export function matrixGetRoomReadState(roomId: string) {
+  return invokeMatrixCommand<import("./types").MatrixRoomReadState>("matrix_get_room_read_state", { request: { roomId } });
+}
+export function matrixMarkRoomRead(request: import("./types").MatrixMarkReadRequest) {
+  return invokeMatrixCommand<void>("matrix_mark_room_read", { request });
+}
+export async function matrixGetReadContext(roomId: string, eventId: string) {
+  const result = await invokeMatrixCommand<import("./types").MatrixReadContextResponse>("matrix_get_read_context", { request: { roomId, eventId } });
+  return { ...result, messages: result.messages.map(normalizeMessageImageUrl) };
+}
+const replyEventCache = new Map<string, Promise<MatrixChatMessage>>();
+export async function matrixGetReplyEvent(roomId: string, eventId: string) {
+  const key = `${roomId}\n${eventId}`;
+  let pending = replyEventCache.get(key);
+  if (!pending) {
+    pending = invokeMatrixCommand<MatrixChatMessage>("matrix_get_reply_event", {
+      request: { roomId, eventId },
+    }).then(normalizeMessageImageUrl);
+    replyEventCache.set(key, pending);
+    while (replyEventCache.size > 256) {
+      const oldest = replyEventCache.keys().next().value;
+      if (oldest === undefined) break;
+      replyEventCache.delete(oldest);
+    }
+    void pending.catch(() => replyEventCache.delete(key));
+  }
+  return pending;
+}
+export async function matrixGetNewerMessages(roomId: string, from: string) {
+  const result = await invokeMatrixCommand<import("./types").MatrixReadContextResponse>("matrix_get_newer_messages", { request: { roomId, from, limit: 50 } });
+  return { ...result, messages: result.messages.map(normalizeMessageImageUrl) };
+}

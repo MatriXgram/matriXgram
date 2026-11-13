@@ -44,6 +44,7 @@ pub async fn collect_and_store_chats(
     app_db: &Arc<AppDb>,
     client: &matrix_sdk::Client,
 ) -> Vec<MatrixChatSummary> {
+    let current_user_id = client.user_id().map(ToString::to_string);
     let cached_chats_by_room = load_cached_chats(app_db)
         .await
         .ok()
@@ -69,11 +70,16 @@ pub async fn collect_and_store_chats(
         // room's latest event is the ciphertext, so only the decrypted cache
         // holds a readable preview.
         if chat.last_message_preview.is_none() {
-            if let Ok(Some((body, timestamp))) = app_db
+            if let Ok(Some((body, timestamp, sender_label, sender_id))) = app_db
                 .load_latest_cached_message(chat.room_id.as_str())
                 .await
             {
-                chat.last_message_preview = Some(preview_text(&body));
+                let sender = if current_user_id.as_deref() == Some(sender_id.as_str()) {
+                    "You"
+                } else {
+                    sender_label.as_str()
+                };
+                chat.last_message_preview = Some(format!("{sender}: {}", preview_text(&body)));
                 if chat.last_message_ts.is_none() {
                     chat.last_message_ts = timestamp;
                 }

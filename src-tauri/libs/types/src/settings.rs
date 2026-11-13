@@ -68,6 +68,9 @@ pub struct MatrixGetRoomSettingsRequest {
 pub struct MatrixRoomSettingsResponse {
     pub room_id: String,
     pub kind: crate::rooms::MatrixRoomKind,
+    pub topic: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub joined_members: u64,
     /// The effective notification mode: the user-defined one when set, the
     /// room-type default otherwise. `None` when the room is not joined.
     pub notification_mode: Option<MatrixRoomNotificationMode>,

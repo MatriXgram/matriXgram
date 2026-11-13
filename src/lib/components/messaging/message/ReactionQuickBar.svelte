@@ -49,7 +49,7 @@
 {#if position}
   <div
     data-reaction-bar
-    class="fixed z-50 flex items-center gap-0.5 rounded-full border border-hairline bg-panel px-1.5 py-1 shadow-lg"
+    class="menu-pop-in fixed z-50 flex items-center gap-0.5 rounded-md border border-hairline bg-panel/85 px-1 py-0.5 shadow-lg backdrop-blur-md"
     style={`left: ${position.x}px; top: ${position.y}px;`}
     role="menu"
     aria-label="React with an emoji"
