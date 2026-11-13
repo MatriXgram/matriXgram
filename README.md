@@ -30,6 +30,19 @@ encryption.
 The app is under active development. Some Matrix features and platform
 integrations are still evolving; see [ROADMAP.md](ROADMAP.md) for planned work.
 
+| Area | Status |
+|---|---|
+| Password and OAuth/SSO login, saved sessions | Implemented |
+| Rooms, spaces, room settings, public-room explorer | Implemented |
+| Messaging, replies, reactions, emoji, media and image viewer | Implemented |
+| Unread markers, automatic history loading, jump to latest | Implemented |
+| SAS device verification and incoming verification requests | Implemented |
+| Mentions and member suggestions | Implemented |
+| Threads (MSC3440) | Partial: thread relations are parsed; thread view and replies are not implemented |
+| Edits and redactions | Partial: incoming events are handled; sending edits and redactions is not implemented |
+| Stickers, voice messages and image albums | Not implemented |
+| Desktop notifications and Matrix calls | Not implemented |
+
 ## Attribution and licence
 
 This project is a fork of [Singularity](https://github.com/Luxuride/singularity)
