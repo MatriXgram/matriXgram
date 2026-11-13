@@ -320,15 +320,14 @@ async fn send_media_file_impl(
 
     let content = match media_kind {
         MediaKind::Image => {
-            let mut content = RoomMessageEventContent::new(MessageType::Image(
-                ImageMessageEventContent::plain(
+            let mut content =
+                RoomMessageEventContent::new(MessageType::Image(ImageMessageEventContent::plain(
                     caption
                         .filter(|value| !value.trim().is_empty())
                         .map(str::to_owned)
                         .unwrap_or_else(|| file_name.clone()),
                     upload_response.content_uri,
-                ),
-            ));
+                )));
             if let MessageType::Image(image) = &mut content.msgtype {
                 image.filename = Some(file_name.clone());
             }
@@ -352,15 +351,14 @@ async fn send_media_file_impl(
             content
         }
         MediaKind::File => {
-            let mut content = RoomMessageEventContent::new(MessageType::File(
-                FileMessageEventContent::plain(
+            let mut content =
+                RoomMessageEventContent::new(MessageType::File(FileMessageEventContent::plain(
                     caption
                         .filter(|value| !value.trim().is_empty())
                         .map(str::to_owned)
                         .unwrap_or_else(|| file_name.clone()),
                     upload_response.content_uri,
-                ),
-            ));
+                )));
             if let MessageType::File(file) = &mut content.msgtype {
                 file.filename = Some(file_name.clone());
             }

@@ -456,7 +456,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
           return candidate;
         }
 
-        const reactions = applyReactionStateOverrides(message.eventId, message.reactions);
+        const reactions = applyReactionStateOverrides(message.eventId!, message.reactions);
         return {
           ...candidate,
           ...message,
@@ -1151,6 +1151,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
         roomId,
         body: message.body,
         inReplyToEventId: message.inReplyToEventId,
+        mentionedUserIds: [],
       },
       message.localId,
       message,
@@ -1186,6 +1187,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
         roomId,
         body: message.body,
         inReplyToEventId: null,
+        mentionedUserIds: [],
         // Forwarding keeps the formatting of the original message. The reply
         // quote block is left out: it belongs to the conversation the
         // message came from.

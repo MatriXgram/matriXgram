@@ -139,6 +139,15 @@ export interface MatrixGetChatMessagesRequest {
   limit?: number | null;
 }
 
+export interface MatrixGetRoomMembersRequest {
+  roomId: string;
+}
+
+export interface MatrixRoomMember {
+  userId: string;
+  displayName: string;
+}
+
 export interface MatrixStreamChatMessagesRequest {
   roomId: string;
   from?: string | null;
@@ -152,16 +161,7 @@ export interface MatrixSendChatMessageRequest {
   body: string;
   inReplyToEventId?: string | null;
   formattedBody?: string | null;
-  mentionedUserIds?: string[];
-}
-
-export interface MatrixGetRoomMembersRequest {
-  roomId: string;
-}
-
-export interface MatrixRoomMember {
-  userId: string;
-  displayName: string;
+  mentionedUserIds: string[];
 }
 
 export interface MatrixSendMediaFileRequest {
@@ -683,4 +683,10 @@ export interface MatrixVerificationFlowResponse {
 
 export interface MatrixVerificationStateChangedEvent {
   verified: boolean;
+}
+
+export interface MatrixVerificationRequestedEvent {
+  userId: string;
+  flowId: string;
+  deviceId: string;
 }

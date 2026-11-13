@@ -3,8 +3,7 @@ use matrix_sdk::encryption::verification::{SasState, VerificationRequestState};
 use matrix_sdk::encryption::VerificationState;
 use matrix_sdk::ruma::{
     events::{
-        key::verification::request::ToDeviceKeyVerificationRequestEventContent,
-        ToDeviceEvent,
+        key::verification::request::ToDeviceKeyVerificationRequestEventContent, ToDeviceEvent,
     },
     OwnedDeviceId, OwnedUserId,
 };

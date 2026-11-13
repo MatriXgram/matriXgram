@@ -31,7 +31,10 @@ pub type RoomSnapshot = HashMap<String, MatrixChatSummary>;
 /// from the sync response: an encrypted room's latest event is the ciphertext.
 /// The chat list falls back to the locally cached (decrypted) message for
 /// those.
-async fn last_message_preview(room: &matrix_sdk::Room, current_user_id: Option<&str>) -> Option<String> {
+async fn last_message_preview(
+    room: &matrix_sdk::Room,
+    current_user_id: Option<&str>,
+) -> Option<String> {
     let matrix_sdk::latest_events::LatestEventValue::Remote(timeline) = room.latest_event() else {
         return None;
     };
@@ -355,10 +358,12 @@ impl RoomUpdateWorker {
                     &mut previous_snapshot,
                     &mut previous_generation,
                     &mut sync_engine,
-                    selected_room_id.clone(),
-                    include_selected_messages,
-                    initial_sync_timeout,
-                    long_poll_sync_timeout,
+                    RefreshOptions {
+                        selected_room_id: selected_room_id.clone(),
+                        include_selected_messages,
+                        initial_sync_timeout,
+                        long_poll_sync_timeout,
+                    },
                 );
                 tokio::pin!(pass);
 
@@ -447,6 +452,13 @@ struct RefreshDeps<'a> {
     paths: &'a Paths,
 }
 
+struct RefreshOptions {
+    selected_room_id: Option<String>,
+    include_selected_messages: bool,
+    initial_sync_timeout: Duration,
+    long_poll_sync_timeout: Duration,
+}
+
 /// Create the trigger channel and the worker. The binder manages the returned
 /// [`RoomUpdateTriggerState`] and spawns [`RoomUpdateWorker::run`] on its async
 /// runtime.
@@ -472,10 +484,7 @@ async fn run_refresh_pass(
     previous_snapshot: &mut RoomSnapshot,
     previous_generation: &mut u64,
     sync_engine: &mut Option<RoomSyncEngine>,
-    selected_room_id: Option<String>,
-    include_selected_messages: bool,
-    initial_sync_timeout: Duration,
-    long_poll_sync_timeout: Duration,
+    options: RefreshOptions,
 ) -> Result<bool, String> {
     let paths = &worker.paths;
     let app_db = &worker.app_db;
@@ -505,10 +514,7 @@ async fn run_refresh_pass(
         &client,
         generation,
         sync_engine,
-        selected_room_id,
-        include_selected_messages,
-        initial_sync_timeout,
-        long_poll_sync_timeout,
+        options,
     );
     let result = tokio::select! {
         result = refresh => result,
@@ -559,16 +565,19 @@ async fn refresh_client_rooms(
     client: &matrix_sdk::Client,
     generation: u64,
     sync_engine: &mut Option<RoomSyncEngine>,
-    selected_room_id: Option<String>,
-    include_selected_messages: bool,
-    initial_sync_timeout: Duration,
-    long_poll_sync_timeout: Duration,
+    options: RefreshOptions,
 ) -> Result<bool, String> {
+    let RefreshOptions {
+        selected_room_id,
+        include_selected_messages,
+        initial_sync_timeout,
+        long_poll_sync_timeout,
+    } = options;
     let app_db = &worker.app_db;
     let auth_state = &worker.auth_state;
     let event_sink = &worker.event_sink;
     if previous_snapshot.is_empty() {
-        let local_chats = collect_and_store_chats(app_db, &client).await;
+        let local_chats = collect_and_store_chats(app_db, client).await;
         if auth_state.generation() != generation {
             return Ok(false);
         }
@@ -680,7 +689,7 @@ async fn refresh_client_rooms(
                     let _ = event_sink.emit(event_paths::SELECTED_ROOM_MESSAGES, &payload);
                 }
                 if let Ok(response) =
-                    fetch_room_messages_from_client(&client, &room_id, None, Some(50)).await
+                    fetch_room_messages_from_client(client, &room_id, None, Some(50)).await
                 {
                     let response = MatrixGetChatMessagesResponse {
                         room_id: response.room_id,

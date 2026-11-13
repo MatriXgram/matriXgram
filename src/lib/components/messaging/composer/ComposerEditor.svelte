@@ -11,7 +11,7 @@
   import { EditorView } from "prosemirror-view";
 
   import { buildDocFromDraft, composerSchema } from "./editorSchema";
-  import { docToDraft, getSelectionOffsetsFromState, textOffsetToPos } from "./editorHelpers";
+  import { docToDraft, draftBetween, getSelectionOffsetsFromState, textOffsetToPos } from "./editorHelpers";
   import type { ComposerMention, ShortcodeRange, SuggestionPosition } from "./types";
 
   interface Props {
