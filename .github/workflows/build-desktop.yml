@@ -1,0 +1,35 @@
+name: Build desktop installers
+
+on:
+  push:
+    branches-ignore:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      platform: windows-latest
+      artifact-name: matrixgram-windows-x64
+      artifact-path: src-tauri/target/release/bundle/**
+
+  build-linux:
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      platform: ubuntu-22.04
+      args: --bundles deb,rpm
+      artifact-name: matrixgram-linux-x64
+      artifact-path: |
+        src-tauri/target/release/bundle/**/*.deb
+        src-tauri/target/release/bundle/**/*.rpm
+
+  build-macos:
+    uses: ./.github/workflows/build-tauri-job.yml
+    with:
+      platform: macos-latest
+      args: --target aarch64-apple-darwin
+      rust-targets: aarch64-apple-darwin
+      artifact-name: matrixgram-macos-aarch64
+      artifact-path: src-tauri/target/aarch64-apple-darwin/release/bundle/**
