@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { matrixDownloadFile, matrixResolveVideoUrl } from "$lib/chats/api";
   import { openUserProfile } from "$lib/chats/user-profile";
   import { userIdFromMatrixLink } from "$lib/chats/matrixLinks";
@@ -21,6 +22,45 @@
     onImageContextMenu,
   }: Props = $props();
 
+  let linkContextMenu = $state<{ url: string; x: number; y: number } | null>(null);
+
+  function splitLinks(text: string) {
+    const parts: { text: string; url?: string }[] = [];
+    const pattern = /https?:\/\/[^\s<>"']+/gi;
+    let cursor = 0;
+    for (const match of text.matchAll(pattern)) {
+      const start = match.index ?? 0;
+      const raw = match[0];
+      const trailing = raw.match(/[),.!?;:]+$/)?.[0] ?? "";
+      const url = raw.slice(0, raw.length - trailing.length);
+      if (start > cursor) parts.push({ text: text.slice(cursor, start) });
+      if (url) parts.push({ text: url, url });
+      if (trailing) parts.push({ text: trailing });
+      cursor = start + raw.length;
+    }
+    if (cursor < text.length) parts.push({ text: text.slice(cursor) });
+    return parts;
+  }
+
+  function safeExternalUrl(href: string) {
+    try {
+      const url = new URL(href, window.location.href);
+      return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+    } catch { return null; }
+  }
+
+  function showLinkMenu(event: MouseEvent, url: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    linkContextMenu = { url, x: event.clientX, y: event.clientY };
+  }
+
+  async function copyContextLink() {
+    if (!linkContextMenu) return;
+    try { await navigator.clipboard.writeText(linkContextMenu.url); }
+    finally { linkContextMenu = null; }
+  }
+
   function imageCaption(body: string | null | undefined): string {
     const caption = body?.trim() ?? "";
     if (!caption) return "";
@@ -33,13 +73,27 @@
       const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
       if (!(link instanceof HTMLAnchorElement) || !element.contains(link)) return;
       const userId = userIdFromMatrixLink(link.getAttribute("href") ?? "");
-      if (!userId) return;
+      if (userId) {
+        event.preventDefault();
+        event.stopPropagation();
+        openUserProfile({ roomId, userId, displayName: link.textContent?.trim() || null });
+        return;
+      }
+      const url = safeExternalUrl(link.href);
+      if (!url) return;
       event.preventDefault();
       event.stopPropagation();
-      openUserProfile({ roomId, userId, displayName: link.textContent?.trim() || null });
+      void openUrl(url);
+    };
+    const handleContextMenu = (event: MouseEvent) => {
+      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(link instanceof HTMLAnchorElement) || !element.contains(link)) return;
+      const url = safeExternalUrl(link.href);
+      if (url) showLinkMenu(event, url);
     };
     element.addEventListener("click", handleClick);
-    return { destroy() { element.removeEventListener("click", handleClick); } };
+    element.addEventListener("contextmenu", handleContextMenu);
+    return { destroy() { element.removeEventListener("click", handleClick); element.removeEventListener("contextmenu", handleContextMenu); } };
   }
 
   function codeControls(element: HTMLDivElement) {
@@ -346,7 +400,7 @@
   }
 </script>
 
-<svelte:window onkeydown={handleImageViewerKeydown} onresize={fitViewerImage} />
+<svelte:window onkeydown={handleImageViewerKeydown} onresize={fitViewerImage} onpointerdown={() => linkContextMenu = null} />
 
 {#if message.messageType === "m.image"}
   <figure class="message-image-body space-y-2 text-[14px] leading-[1.35] font-normal">
@@ -528,7 +582,7 @@
     {/if}
     {#if message.body}
       <figcaption class="text-[1em] whitespace-pre-wrap break-words text-surface-700-300">
-        {message.body}
+        {#each splitLinks(message.body) as part, index}{#if part.url}<a href={part.url} class="cursor-pointer text-accent underline decoration-accent/50 underline-offset-2 hover:decoration-accent" onclick={(event) => { event.preventDefault(); void openUrl(part.url!); }} oncontextmenu={(event) => showLinkMenu(event, part.url!)}>{part.text}</a>{:else}{part.text}{/if}{/each}
       </figcaption>
     {/if}
   </figure>
@@ -550,7 +604,7 @@
       </button>
     {/if}
     {#if message.body}
-      <div class="mt-2 whitespace-pre-wrap break-words">{message.body}</div>
+      <div class="mt-2 whitespace-pre-wrap break-words">{#each splitLinks(message.body) as part, index}{#if part.url}<a href={part.url} class="cursor-pointer text-accent underline decoration-accent/50 underline-offset-2 hover:decoration-accent" onclick={(event) => { event.preventDefault(); void openUrl(part.url!); }} oncontextmenu={(event) => showLinkMenu(event, part.url!)}>{part.text}</a>{:else}{part.text}{/if}{/each}</div>
     {/if}
   </div>
 {:else if renderedFormattedBody}
@@ -561,8 +615,14 @@
   {/key}
 {:else}
   <p class="whitespace-pre-wrap break-words text-[14px] leading-[1.35] font-normal">
-    {renderedPlainBody}
+    {#each splitLinks(renderedPlainBody) as part, index}{#if part.url}<a href={part.url} class="cursor-pointer text-accent underline decoration-accent/50 underline-offset-2 hover:decoration-accent" onclick={(event) => { event.preventDefault(); void openUrl(part.url!); }} oncontextmenu={(event) => showLinkMenu(event, part.url!)}>{part.text}</a>{:else}{part.text}{/if}{/each}
   </p>
+{/if}
+
+{#if linkContextMenu}
+  <div class="fixed z-[120] min-w-32 border border-hairline bg-panel py-1 shadow-xl" style={`left:${linkContextMenu.x}px;top:${linkContextMenu.y}px`} role="menu" onclick={(event) => event.stopPropagation()} onpointerdown={(event) => event.stopPropagation()}>
+    <button type="button" class="w-full cursor-pointer px-3 py-2 text-left text-sm text-primary hover:bg-panel-alt" role="menuitem" onclick={() => void copyContextLink()}>Copy link</button>
+  </div>
 {/if}
 
 <style>
