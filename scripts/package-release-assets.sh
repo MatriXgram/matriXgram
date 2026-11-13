@@ -22,10 +22,6 @@ package_group() {
   done
 }
 
-# macOS packages
-package_group "release-assets/macos-aarch64" "matrixgram-macos-aarch64-dmg" "*.dmg" "*.dmg.sig"
-package_group "release-assets/macos-aarch64" "matrixgram-macos-aarch64-app" "*.app.tar.gz" "*.app.tar.gz.sig"
-
 # Linux packages
 package_group "release-assets/linux-x64" "matrixgram-linux-x64-deb" "*.deb" "*.deb.sig"
 package_group "release-assets/linux-x64" "matrixgram-linux-x64-rpm" "*.rpm" "*.rpm.sig"

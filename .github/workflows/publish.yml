@@ -21,20 +21,6 @@ jobs:
     with:
       check: npm-check
 
-  publish-tauri-macos:
-    needs:
-      - cargo-fmt
-      - cargo-clippy
-      - npm-check
-    uses: ./.github/workflows/build-tauri-job.yml
-    with:
-      platform: 'macos-latest'
-      args: '--target aarch64-apple-darwin'
-      rust-targets: 'aarch64-apple-darwin'
-      artifact-name: 'matrixgram-macos-aarch64'
-      artifact-path: 'src-tauri/target/aarch64-apple-darwin/release/bundle/**'
-    secrets: inherit
-
   publish-tauri-linux:
     needs:
       - cargo-fmt
@@ -79,7 +65,6 @@ jobs:
 
   publish-release:
     needs:
-      - publish-tauri-macos
       - publish-tauri-linux
       - publish-tauri-windows
       - publish-flatpak
@@ -89,12 +74,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: download macos artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: 'matrixgram-macos-aarch64'
-          path: 'release-assets/macos-aarch64'
 
       - name: download linux artifact
         uses: actions/download-artifact@v8
