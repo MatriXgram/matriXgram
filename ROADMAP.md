@@ -1,21 +1,31 @@
 # Roadmap
 
-Ordered by what a Telegram-like client needs next. Each item names the files
-it touches so it can be picked up independently.
+This tracks work that is still outstanding. Completed items are summarized
+first so the roadmap stays aligned with the current app.
+
+## Recently completed
+
+- Persist chat-list metadata, including last-message previews, timestamps,
+  unread counts, pinned state and muted state, in the SQLite cache.
+- Show the sender in the last-message preview, including `You` for messages
+  sent by the current account.
+- Load older timeline messages automatically while preserving the reader's
+  scroll position; show an unread divider/count and a jump-to-latest control.
+- Add a public-room explorer with selectable directory servers, custom server
+  entries, room details and joining.
+- Add user profiles from names, avatars and mentions, plus Matrix link handling
+  in chat messages.
+- Add SAS verification requests and incoming verification dialogs.
+- Add an image viewer with zoom, drag-to-pan and previous/next image controls.
+- Add formatted message composition, mentions, reactions and reaction
+  participant details.
 
 ## 1. Chat list polish
 
-- [ ] Persist the new chat-list fields in the SQLite cache. `MatrixChatSummary`
-      gained `last_message_preview`, `last_message_ts`, `unread_count`,
-      `is_pinned` and `is_muted`, but `chats_cache` still stores the old
-      columns, so the cached list loses them across restarts.
-      See `src-tauri/libs/storage/src/migrations/`.
-- [ ] Show the sender of the last message in the chat list preview
-      ("Alice: hello"), the way Telegram does.
 - [ ] Drag to reorder pinned chats. `svelte-dnd-action` is already a
       dependency and the Space list uses it — see
       `src/lib/components/navigation/spaces/sorting.ts`.
-- [ ] Read receipts for the last message of a room.
+- [ ] Show read receipts for the latest message in each room.
 
 ## 2. Threads (MSC3440)
 

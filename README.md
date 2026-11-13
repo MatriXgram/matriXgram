@@ -1,31 +1,34 @@
 # MatriXgram
 
-A Telegram-like desktop client for the [Matrix](https://matrix.org/) protocol,
-built with Tauri (Rust core + SvelteKit UI).
+A Telegram-inspired desktop client for the [Matrix](https://matrix.org/)
+protocol, built with Tauri, Rust and SvelteKit. MatriXgram combines a compact
+chat interface with Matrix accounts, rooms, federation and end-to-end
+encryption.
 
-The goal is a messaging client that feels like Telegram Desktop: a flat chat
-list, bubbles with tails, grouped messages, pinned chats, unread badges — while
-speaking Matrix natively (federation, E2EE, Spaces, threads, MatrixRTC).
+## Features and status
 
-## Status
+- Sign in to Matrix with a password, restore a saved session, and configure a
+  custom homeserver when needed. OAuth/SSO is available where supported by the
+  homeserver.
+- Browse rooms and spaces in a compact sidebar, search rooms, and manage room
+  settings.
+- Explore public rooms from Matrix directory servers, add a custom directory,
+  inspect room details, and join rooms from the explorer.
+- Read and send messages with grouped chat bubbles, sender names, timestamps,
+  replies, reactions, emoji, mentions, and code formatting.
+- Keep your place in long conversations with automatic history loading, unread
+  markers, unread counts, and a jump-to-latest control.
+- View images in a full-screen viewer with zoom, drag-to-pan, and navigation
+  between images. Video and file messages are supported.
+- Open user profiles from names, avatars and mentions. Links in messages can be
+  opened in the system browser or copied from the link context menu.
+- Verify devices with Matrix SAS verification and respond to incoming
+  verification requests in the app.
+- Personalize the interface with light/dark themes, Telegram Desktop theme
+  imports, and appearance settings including reply-block colors.
 
-Early development. The Matrix protocol layer is mature (it comes from the
-[Singularity](https://github.com/Luxuride/singularity) client); the Telegram
-look and the chat-list features are work in progress.
-
-See [ROADMAP.md](ROADMAP.md) for what is left, in priority order.
-
-| Area | State |
-|---|---|
-| Login (password, SSO), session restore, account switching | working |
-| E2EE (RustCrypto), SAS verification, recovery key | working |
-| Room list, spaces, room settings, keywords | working |
-| Message timeline, reply, reactions, media, emoji | working |
-| Telegram bubbles, grouping, date separators | working |
-| Last message preview, unread counts, pinned/muted rooms | in progress |
-| Threads (MSC3440), edits, redactions, mentions | partially done |
-| Sticker, voice message, gallery | not done |
-| OS notifications, calls (MatrixRTC) | not done |
+The app is under active development. Some Matrix features and platform
+integrations are still evolving; see [ROADMAP.md](ROADMAP.md) for planned work.
 
 ## Attribution and licence
 
@@ -50,8 +53,8 @@ src-tauri/
 │   │                src/lib/generated/types.ts)
 │   ├── protocol/    sync, event parsing, HTML sanitiser
 │   ├── auth/        login flows, session persistence
-│   ├── chat/        send/receive, media, reactions, emoji
-│   ├── rooms/       room list, navigation, avatars
+│   ├── chat/        send/receive, media, reactions, profiles
+│   ├── rooms/       room list, directory search, navigation, avatars
 │   ├── verification/ device verification
 │   ├── storage/     encrypted sqlite cache
 │   ├── keychain/    OS credential store
@@ -60,8 +63,8 @@ src-tauri/
 └── src/             Tauri binder: commands and app setup only
 src/                 SvelteKit UI
 ├── lib/components/
-│   ├── messaging/   timeline, bubbles, composer
-│   └── navigation/  chat list, room settings
+│   ├── messaging/   timeline, bubbles, composer, reactions
+│   └── navigation/  chat list, community explorer, room settings
 └── lib/theme.ts     light/dark theme
 ```
 
@@ -101,13 +104,13 @@ npm install
 2. Run in desktop dev mode:
 
 ```bash
-npm tauri dev
+npm run tauri -- dev
 ```
 
 3. Build production artifacts:
 
 ```bash
-npm tauri build
+npm run tauri -- build
 ```
 
 ## Development Commands
