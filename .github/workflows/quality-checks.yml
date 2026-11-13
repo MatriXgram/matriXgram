@@ -9,7 +9,7 @@ on:
 
 jobs:
   quality-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
@@ -25,10 +25,10 @@ jobs:
             src-tauri -> target
 
       - name: install tauri dependencies
-        if: inputs.check == 'cargo-fmt' || inputs.check == 'cargo-clippy'
+        if: inputs.check == 'cargo-clippy'
         run: |
           sudo apt-get update
-          sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: install fmt dependencies
         if: inputs.check == 'cargo-fmt'
