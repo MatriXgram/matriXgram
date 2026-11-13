@@ -275,6 +275,29 @@ import type {
 		{#if loading}
 			<p class="text-sm text-surface-700-300">Loading settings...</p>
 		{:else if settings}
+			<section class="card space-y-2 p-3 preset-outlined-surface-300-700 bg-surface-50-950">
+				<h3 class="h6">Room information</h3>
+				<div class="grid gap-2 text-sm">
+					<div>
+						<p class="text-xs text-surface-700-300">Description</p>
+						<p class="whitespace-pre-wrap break-words">{settings.topic || "No description"}</p>
+					</div>
+					<div>
+						<p class="text-xs text-surface-700-300">Room ID</p>
+						<p class="break-all font-mono text-xs">{settings.roomId}</p>
+					</div>
+					{#if settings.canonicalAlias}
+						<div>
+						<p class="text-xs text-surface-700-300">Room address</p>
+						<p class="break-all font-mono text-xs">{settings.canonicalAlias}</p>
+						</div>
+					{/if}
+					<div>
+						<p class="text-xs text-surface-700-300">Members</p>
+						<p>{settings.joinedMembers.toLocaleString()}</p>
+					</div>
+				</div>
+			</section>
 			{#if errorMessage}
 				<p class="text-sm preset-filled-error-500 rounded p-2">{errorMessage}</p>
 			{/if}

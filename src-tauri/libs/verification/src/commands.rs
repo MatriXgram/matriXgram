@@ -1,7 +1,13 @@
 use log::{debug, warn};
 use matrix_sdk::encryption::verification::{SasState, VerificationRequestState};
 use matrix_sdk::encryption::VerificationState;
-use matrix_sdk::ruma::{OwnedDeviceId, OwnedUserId};
+use matrix_sdk::ruma::{
+    events::{
+        key::verification::request::ToDeviceKeyVerificationRequestEventContent,
+        ToDeviceEvent,
+    },
+    OwnedDeviceId, OwnedUserId,
+};
 use matrix_sdk::Client;
 use std::sync::Arc;
 
@@ -10,12 +16,12 @@ use protocol::parse_user_id;
 use protocol::sync::sync_once_serialized;
 use storage::AppDb;
 use types::config;
-use types::event_paths::VERIFICATION_STATE_CHANGED;
+use types::event_paths::{VERIFICATION_REQUESTED, VERIFICATION_STATE_CHANGED};
 use types::verification::{
     MatrixDeviceInfo, MatrixDeviceTrust, MatrixGetUserDevicesResponse, MatrixOwnVerificationStatus,
     MatrixRequestVerificationResponse, MatrixSasVerificationState, MatrixVerificationEmoji,
     MatrixVerificationFlowResponse, MatrixVerificationRequestState,
-    MatrixVerificationStateChangedEvent,
+    MatrixVerificationRequestedEvent, MatrixVerificationStateChangedEvent,
 };
 use types::{EventSink, Paths};
 
@@ -440,5 +446,38 @@ pub fn start_verification_state_watcher(
                 warn!("Failed to emit verification state change: {e}");
             }
         }
+    });
+}
+
+/// Listen for verification requests sent to this device by another client.
+/// The SDK processes the to-device event into its verification machine; this
+/// handler forwards the flow identifiers so the UI can offer the normal
+/// accept/SAS flow.
+pub fn start_verification_request_watcher(
+    event_sink: Arc<dyn EventSink>,
+    client: Client,
+    cancelled: auth::ClientCancelled,
+) {
+    let handler_guard = client.add_event_handler(
+        move |event: ToDeviceEvent<ToDeviceKeyVerificationRequestEventContent>| {
+            let event_sink = event_sink.clone();
+            async move {
+                let payload = MatrixVerificationRequestedEvent {
+                    user_id: event.sender.to_string(),
+                    flow_id: event.content.transaction_id.to_string(),
+                    device_id: event.content.from_device.to_string(),
+                };
+                let payload = serde_json::to_value(payload).unwrap_or(serde_json::Value::Null);
+                if let Err(error) = event_sink.emit(VERIFICATION_REQUESTED, &payload) {
+                    warn!("Failed to emit incoming verification request: {error}");
+                }
+            }
+        },
+    );
+
+    tokio::spawn(async move {
+        let _handler_guard = handler_guard;
+        let mut cancelled = cancelled;
+        wait_for_cancel(&mut cancelled).await;
     });
 }

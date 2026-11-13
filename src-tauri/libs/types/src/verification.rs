@@ -146,6 +146,15 @@ pub struct MatrixVerificationStateChangedEvent {
     pub verified: bool,
 }
 
+/// An incoming request to verify this account from another device.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixVerificationRequestedEvent {
+    pub user_id: String,
+    pub flow_id: String,
+    pub device_id: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

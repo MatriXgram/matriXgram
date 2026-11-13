@@ -6,6 +6,9 @@ export function draftBetween(docNode: PMNode, from: number, to: number): string 
     if (leafNode.type.name === "customEmoji") {
       return leafNode.attrs.token ?? "";
     }
+    if (leafNode.type.name === "mention") {
+      return `@${leafNode.attrs.displayName ?? ""}`;
+    }
 
     return "";
   });
@@ -29,9 +32,12 @@ export function getSelectionOffsetsFromState(state: EditorState): { start: numbe
   };
 }
 
-function inlineNodeTextLength(node: { type: { name: string }; text?: string; attrs: { token?: string } }): number {
+function inlineNodeTextLength(node: { type: { name: string }; text?: string; attrs: { token?: string; displayName?: string } }): number {
   if (node.type.name === "customEmoji") {
     return (node.attrs.token ?? "").length;
+  }
+  if (node.type.name === "mention") {
+    return `@${node.attrs.displayName ?? ""}`.length;
   }
 
   return node.text?.length ?? 0;

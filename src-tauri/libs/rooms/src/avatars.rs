@@ -39,23 +39,30 @@ pub struct AvatarChangeDeps {
 
 /// Register the handlers for a signed-in client. Runs for the session's
 /// lifetime; nothing needs to unsubscribe them.
-pub fn watch_avatar_changes(client: &Client, deps: AvatarChangeDeps) {
+pub fn watch_avatar_changes(
+    client: &Client,
+    deps: AvatarChangeDeps,
+    cancelled: tokio::sync::watch::Receiver<bool>,
+) {
     let member_handle = client.add_event_handler({
         let deps = deps.clone();
+        let cancelled = cancelled.clone();
         move |event: SyncRoomMemberEvent, room: Room| {
             let deps = deps.clone();
+            let mut cancelled = cancelled.clone();
             async move {
+                // SDK waits for event handlers before finishing a sync. Avatar
+                // downloads must run independently of room/timeline delivery.
+                tokio::spawn(async move {
                 let avatar_mxc = event
                     .as_original()
                     .and_then(|original| original.content.avatar_url.as_ref())
                     .map(ToString::to_string);
-                handle_member_event(
-                    &deps,
-                    &room,
-                    event.state_key().as_str().to_owned(),
-                    avatar_mxc,
-                )
-                .await;
+                tokio::select! {
+                    _ = cancelled.wait_for(|stop| *stop) => {},
+                    _ = handle_member_event(&deps, &room, event.state_key().as_str().to_owned(), avatar_mxc) => {},
+                }
+                });
             }
         }
     });
@@ -63,12 +70,18 @@ pub fn watch_avatar_changes(client: &Client, deps: AvatarChangeDeps) {
     let room_avatar_handle = client.add_event_handler({
         move |event: SyncRoomAvatarEvent, room: Room| {
             let deps = deps.clone();
+            let mut cancelled = cancelled.clone();
             async move {
-                let avatar_mxc = event
-                    .as_original()
-                    .and_then(|original| original.content.url.as_ref())
-                    .map(ToString::to_string);
-                refresh_room_image(&deps, &room, avatar_mxc).await;
+                tokio::spawn(async move {
+                    let avatar_mxc = event
+                        .as_original()
+                        .and_then(|original| original.content.url.as_ref())
+                        .map(ToString::to_string);
+                    tokio::select! {
+                        _ = cancelled.wait_for(|stop| *stop) => {},
+                        _ = refresh_room_image(&deps, &room, avatar_mxc) => {},
+                    }
+                });
             }
         }
     });

@@ -184,3 +184,55 @@ pub async fn cache_mxc_media_to_local_path(
         .cache_mxc_media_to_local_path(client, raw_url)
         .await
 }
+
+/// Resolve only existing media while painting the SDK timeline. Network media
+/// enrichment runs separately and must never hold up the first text paint.
+#[derive(Clone, Copy)]
+pub(crate) struct CachedMediaResolver;
+fn cached_source(event: &Value, pointers: &[&str]) -> Option<String> {
+    pointers
+        .iter()
+        .filter_map(|path| event.pointer(path).and_then(Value::as_str))
+        .find_map(assets::image::cached_media_path_for_source_url)
+}
+impl MediaResolver for CachedMediaResolver {
+    async fn resolve_pack_media_url(&self, _: &matrix_sdk::Client, url: &str) -> Option<String> {
+        assets::image::cached_media_path_for_source_url(url)
+    }
+    fn canonical_pack_source_url(&self, url: &str) -> String {
+        canonical_pack_source_url(url)
+    }
+    async fn resolve_image_cache_path(
+        &self,
+        _: &matrix_sdk::Client,
+        event: &Value,
+    ) -> Option<String> {
+        cached_source(event, &["/content/url", "/content/file/url"])
+    }
+    async fn resolve_thumbnail_cache_path(
+        &self,
+        _: &matrix_sdk::Client,
+        event: &Value,
+    ) -> Option<String> {
+        cached_source(
+            event,
+            &[
+                "/content/info/thumbnail_url",
+                "/content/info/thumbnail_file/url",
+            ],
+        )
+    }
+    async fn resolve_video_cache_path(&self, _: &matrix_sdk::Client, _: &Value) -> Option<String> {
+        None
+    }
+    async fn download_file_bytes(&self, _: &matrix_sdk::Client, _: &Value) -> Option<Vec<u8>> {
+        None
+    }
+    async fn cache_mxc_media_to_local_path(
+        &self,
+        _: &matrix_sdk::Client,
+        url: &str,
+    ) -> Option<String> {
+        assets::image::cached_media_path_for_source_url(url)
+    }
+}

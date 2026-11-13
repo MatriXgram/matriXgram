@@ -1,7 +1,7 @@
 {
-  "name": "singularity",
+  "name": "matrixgram",
   "version": "0.1.0",
-  "description": "",
+  "description": "A Telegram-like desktop client for the Matrix protocol",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
@@ -13,9 +13,9 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "dependencies": {
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "2.11.1",
     "@tauri-apps/plugin-deep-link": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-opener": "^2",
@@ -24,21 +24,19 @@
     "prosemirror-keymap": "^1.2.3",
     "prosemirror-model": "^1.25.4",
     "prosemirror-state": "^1.4.4",
-    "prosemirror-view": "^1.41.7",
+    "prosemirror-view": "^1.42.9",
     "svelte-dnd-action": "^0.9.69"
   },
   "devDependencies": {
-    "@skeletonlabs/skeleton": "^4.13.0",
-    "@skeletonlabs/skeleton-svelte": "^4.13.0",
     "@sveltejs/adapter-static": "^3.0.6",
     "@sveltejs/kit": "^2.9.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
-    "@tailwindcss/vite": "^4.2.1",
-    "@tauri-apps/cli": "^2",
+    "@tailwindcss/vite": "^4.3.5",
+    "@tauri-apps/cli": "^2.12.4",
     "prosemirror-history": "^1.5.0",
-    "svelte": "^5.0.0",
+    "svelte": "^5.57.3",
     "svelte-check": "^4.0.0",
-    "tailwindcss": "^4.2.1",
+    "tailwindcss": "^4.3.5",
     "typescript": "~5.6.2",
     "vite": "^6.0.3"
   }

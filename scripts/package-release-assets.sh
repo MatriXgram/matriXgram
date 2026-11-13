@@ -23,17 +23,17 @@ package_group() {
 }
 
 # macOS packages
-package_group "release-assets/macos-aarch64" "singularity-macos-aarch64-dmg" "*.dmg" "*.dmg.sig"
-package_group "release-assets/macos-aarch64" "singularity-macos-aarch64-app" "*.app.tar.gz" "*.app.tar.gz.sig"
+package_group "release-assets/macos-aarch64" "matrixgram-macos-aarch64-dmg" "*.dmg" "*.dmg.sig"
+package_group "release-assets/macos-aarch64" "matrixgram-macos-aarch64-app" "*.app.tar.gz" "*.app.tar.gz.sig"
 
 # Linux packages
-package_group "release-assets/linux-x64" "singularity-linux-x64-deb" "*.deb" "*.deb.sig"
-package_group "release-assets/linux-x64" "singularity-linux-x64-rpm" "*.rpm" "*.rpm.sig"
-package_group "release-assets/linux-x64" "singularity-linux-x64-appimage" "*.AppImage" "*.AppImage.sig" "*.AppImage.tar.gz" "*.AppImage.tar.gz.sig"
+package_group "release-assets/linux-x64" "matrixgram-linux-x64-deb" "*.deb" "*.deb.sig"
+package_group "release-assets/linux-x64" "matrixgram-linux-x64-rpm" "*.rpm" "*.rpm.sig"
+package_group "release-assets/linux-x64" "matrixgram-linux-x64-appimage" "*.AppImage" "*.AppImage.sig" "*.AppImage.tar.gz" "*.AppImage.tar.gz.sig"
 
 # Windows packages
-package_group "release-assets/windows-x64" "singularity-windows-x64-msi" "*.msi"
-package_group "release-assets/windows-x64" "singularity-windows-x64-exe" "*.exe" "*.exe.sig"
+package_group "release-assets/windows-x64" "matrixgram-windows-x64-msi" "*.msi"
+package_group "release-assets/windows-x64" "matrixgram-windows-x64-exe" "*.exe" "*.exe.sig"
 
 # Flatpak package
-package_group "release-assets/linux-flatpak" "singularity-linux-flatpak" "*.flatpak"
+package_group "release-assets/linux-flatpak" "matrixgram-linux-flatpak" "*.flatpak"

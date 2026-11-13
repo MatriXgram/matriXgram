@@ -1,5 +1,464 @@
 @import "tailwindcss";
 
-@import "@skeletonlabs/skeleton";
-@import "@skeletonlabs/skeleton-svelte";
-@import "@skeletonlabs/skeleton/themes/cerberus";
+/*
+ * Matrix Telegram — design tokens.
+ *
+ * Skeleton Labs was the previous styling dependency. It is removed: its
+ * `surface-NNN` scale and `preset-*` classes are re-implemented here on top
+ * of plain CSS custom properties, mapped onto Telegram's palette. The class
+ * names in the markup are kept as-is so the existing components keep working
+ * while they are progressively restyled; new code should prefer the semantic
+ * tokens below (`bg-surface`, `text-secondary`, `bg-bubble-in`, ...).
+ *
+ * Light and dark values are switched by the `data-theme` attribute on <html>,
+ * which the theme store writes.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Telegram light palette */
+  --tg-accent: #3b82f6;
+  --tg-accent-hover: #2b82d9;
+  --tg-accent-soft: #eaf3fe;
+
+  --tg-app-bg: #edf1f7; /* window background behind the panels */
+  --tg-panel: #ffffff; /* sidebar / settings panels */
+  --tg-panel-alt: #f5f7fb; /* chat background */
+  --tg-elevated: #ffffff;
+  --tg-hover: #f0f3f8;
+  --tg-active: #e7eef9;
+  --tg-border: #e5eaf1;
+  --tg-border-strong: #c8ced6;
+
+  --tg-text: #1c273b;
+  --tg-text-secondary: #788397;
+  --tg-text-muted: #8d8d8d;
+  --tg-text-inverse: #ffffff;
+
+  --tg-danger: #e53935;
+  --tg-danger-soft: #fdecec;
+
+  --tg-bubble-in: #ffffff;
+  --tg-bubble-out: #e3edff;
+  --tg-bubble-in-text: #1c273b;
+  --tg-bubble-out-text: #1e3a5f;
+  --tg-bubble-shadow: rgb(30 50 80 / 0.06);
+  --tg-service-bg: rgb(0 0 0 / 0.06);
+  --tg-pinned: rgb(0 0 0 / 0.04);
+  --tg-unread-bar: rgb(0 0 0 / 0.12);
+  --tg-badge-bg: #3390ec;
+  --tg-badge-fg: #ffffff;
+  --tg-badge-bg-muted: #7a8b9b;
+  --tg-on-accent: #ffffff;
+  --tg-scrollbar: rgb(0 0 0 / 0.2);
+  --tg-scrollbar-hover: rgb(0 0 0 / 0.35);
+
+  --tg-radius: 16px;
+  --tg-radius-tail: 4px;
+  --tg-font-size: 15px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --tg-accent: #6ab3f3;
+  --tg-accent-hover: #7cbcf5;
+  --tg-accent-soft: #182533;
+
+  --tg-app-bg: #10151f;
+  --tg-panel: #171e2b;
+  --tg-panel-alt: #121925;
+  --tg-elevated: #202a3b;
+  --tg-hover: #202a3b;
+  --tg-active: #28364c;
+  --tg-border: #263145;
+  --tg-border-strong: #3d3d3d;
+
+  --tg-text: #e7edf6;
+  --tg-text-secondary: #99a7ba;
+  --tg-text-muted: #7d7d7d;
+  --tg-text-inverse: #0f1419;
+
+  --tg-danger: #f04b4b;
+  --tg-danger-soft: #2b1b1b;
+
+  --tg-bubble-in: #202a3b;
+  --tg-bubble-out: #28456b;
+  --tg-bubble-in-text: #f5f5f5;
+  --tg-bubble-out-text: #ffffff;
+  --tg-bubble-shadow: rgb(0 0 0 / 0.35);
+  --tg-service-bg: rgb(255 255 255 / 0.06);
+  --tg-pinned: rgb(255 255 255 / 0.05);
+  --tg-unread-bar: rgb(255 255 255 / 0.14);
+  --tg-badge-bg: #6ab3f3;
+  --tg-badge-fg: #0f1419;
+  --tg-badge-bg-muted: #4a5a68;
+  --tg-on-accent: #0f1419;
+  --tg-scrollbar: rgb(255 255 255 / 0.2);
+  --tg-scrollbar-hover: rgb(255 255 255 / 0.35);
+}
+
+/* Tailwind color tokens. `inline` keeps the var() reference so the
+   dark-mode overrides above are picked up at runtime. */
+@theme inline {
+  --color-accent: var(--tg-accent);
+  --color-accent-hover: var(--tg-accent-hover);
+  --color-accent-soft: var(--tg-accent-soft);
+
+  --color-app-bg: var(--tg-app-bg);
+  --color-panel: var(--tg-panel);
+  --color-panel-alt: var(--tg-panel-alt);
+  --color-elevated: var(--tg-elevated);
+  --color-hover: var(--tg-hover);
+  --color-active: var(--tg-active);
+  --color-hairline: var(--tg-border);
+  --color-hairline-strong: var(--tg-border-strong);
+
+  --color-primary: var(--tg-text);
+  --color-secondary: var(--tg-text-secondary);
+  --color-muted: var(--tg-text-muted);
+  --color-inverse: var(--tg-text-inverse);
+
+  --color-danger: var(--tg-danger);
+  --color-danger-soft: var(--tg-danger-soft);
+
+  --color-bubble-in: var(--tg-bubble-in);
+  --color-bubble-out: var(--tg-bubble-out);
+  --color-bubble-out-text: var(--tg-bubble-out-text);
+  --color-bubble-in-text: var(--tg-bubble-in-text);
+
+  --color-badge: var(--tg-badge-bg);
+  --color-badge-fg: var(--tg-badge-fg);
+  --color-on-accent: var(--tg-on-accent);
+  --color-service: var(--tg-service-bg);
+
+  /* Compatibility layer: Skeleton's paired surface scale, re-mapped onto the
+     Telegram palette. `NNN-NNN` means "this colour in light mode, that colour
+     in dark mode". */
+  --color-surface-50-950: var(--tg-panel);
+  --color-surface-100-900: var(--tg-panel-alt);
+  --color-surface-200-800: var(--tg-hover);
+  --color-surface-300-700: var(--tg-active);
+  --color-surface-400-600: var(--tg-border-strong);
+  --color-surface-500-500: var(--tg-text-muted);
+  --color-surface-600-400: var(--tg-text-secondary);
+  --color-surface-700-300: var(--tg-text-secondary);
+  --color-surface-800-200: var(--tg-text);
+  --color-surface-900-100: var(--tg-text);
+  --color-surface-900-50: var(--tg-text);
+
+  --color-primary-500: var(--tg-accent);
+  --color-primary-100-900: var(--tg-accent-soft);
+  --color-primary-200-800: var(--tg-accent-soft);
+  --color-primary-600-400: var(--tg-accent);
+  --color-primary-700-300: var(--tg-accent);
+  --color-primary-900-100: var(--tg-text);
+
+  --color-error-500: var(--tg-danger);
+  --color-error-200-800: var(--tg-danger-soft);
+  --color-error-900-100: var(--tg-danger);
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--tg-app-bg);
+    color: var(--tg-text);
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+      Arial, sans-serif;
+    font-size: var(--tg-font-size, 15px);
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background-color: var(--tg-accent);
+    color: #fff;
+  }
+}
+
+/* Replacements for the Skeleton Labs component classes that the existing
+   markup still uses. Kept in the `components` layer so Tailwind utilities
+   still win over them. */
+@layer components {
+  .card {
+    border-radius: 12px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 8px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: transparent;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+    background-color: var(--tg-hover);
+    color: var(--tg-text);
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .btn:hover {
+    background-color: var(--tg-active);
+  }
+
+  .btn-sm {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.8rem;
+    border-radius: 6px;
+  }
+
+  .btn-xs {
+    padding: 0.2rem 0.45rem;
+    font-size: 0.72rem;
+    border-radius: 5px;
+  }
+
+  .preset-outlined,
+  .preset-outlined-surface-300-700,
+  .preset-outlined-surface-200-800 {
+    background-color: transparent;
+    border-color: var(--tg-border);
+  }
+
+  .preset-filled {
+    background-color: var(--tg-hover);
+    color: var(--tg-text);
+  }
+
+  .preset-tonal {
+    background-color: var(--tg-accent-soft);
+    color: var(--tg-accent);
+  }
+
+  .preset-filled-error-500 {
+    background-color: var(--tg-danger);
+    color: #fff;
+  }
+
+  .preset-filled-primary-500 {
+    background-color: var(--tg-accent);
+    color: #fff;
+  }
+
+  .btn-primary {
+    background-color: var(--tg-accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    background-color: var(--tg-accent-hover);
+  }
+}
+
+/* Compact rounded message bubbles. */
+@layer components {
+  .bubble {
+    position: relative;
+    min-width: 0;
+    max-width: min(32rem, 100%);
+    padding: 0.45rem 0.65rem 0.35rem;
+    border-radius: 12px;
+    box-shadow: 0 1px 1px var(--tg-bubble-shadow);
+    transition: box-shadow 500ms ease, filter 500ms ease;
+    word-break: break-word;
+  }
+
+  .bubble-media {
+    width: min(32.5rem, 68vw);
+    max-width: 100%;
+  }
+
+  .bubble-in {
+    background-color: var(--tg-bubble-in);
+    color: var(--tg-bubble-in-text);
+    --tg-reply-surface: var(--tg-reply-bg, color-mix(in srgb, var(--tg-accent) 12%, transparent));
+  }
+
+  .bubble-in.message-tail-in {
+    border-bottom-left-radius: 4px;
+  }
+
+  .bubble-in.message-tail-in::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: -8px;
+    width: 11px;
+    height: 12px;
+    background-color: var(--tg-bubble-in);
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    transform: translateX(1px);
+    pointer-events: none;
+  }
+
+  .bubble-out {
+    background-color: var(--tg-bubble-out);
+    color: var(--tg-bubble-out-text);
+    --tg-reply-surface: var(--tg-reply-out-bg, color-mix(in srgb, var(--tg-accent) 12%, transparent));
+  }
+
+  .bubble-out.message-tail-out {
+    border-bottom-right-radius: 4px;
+  }
+
+  .bubble-out.message-tail-out::after {
+    content: "";
+    position: absolute;
+    right: -8px;
+    bottom: 0;
+    width: 11px;
+    height: 12px;
+    background-color: var(--tg-bubble-out);
+    clip-path: polygon(0 0, 0 100%, 100% 100%);
+    transform: translateX(-1px);
+    pointer-events: none;
+  }
+
+  /* A message that mentions the local user gets a subtle accent tint, the way
+     Telegram marks a mention. */
+  .message-mention {
+    box-shadow:
+      inset 0 0 0 1px var(--tg-accent),
+      0 1px 1px var(--tg-bubble-shadow);
+  }
+
+  .reply-target-highlight .bubble {
+    box-shadow: 0 0 0 2px var(--tg-accent), 0 0 16px color-mix(in srgb, var(--tg-accent) 45%, transparent);
+    filter: brightness(1.06);
+  }
+}
+
+/* Shared feedback for message actions and composer formatting. */
+:is([data-action-menu], [data-composer-format]) button {
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+:is([data-action-menu], [data-composer-format]) button:not(:disabled):is(:hover, :focus-visible) {
+  background-color: var(--tg-accent-soft);
+  color: var(--tg-accent);
+  box-shadow: inset 3px 0 var(--tg-accent);
+  outline: none;
+}
+[data-action-menu] button:not(:disabled):is(:hover, :focus-visible) svg {
+  color: inherit;
+}
+:is([data-action-menu], [data-composer-format]) button:not(:disabled):active {
+  background-color: var(--tg-active);
+}
+[data-reaction-bar] button {
+  cursor: pointer;
+  transition: transform 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+[data-reaction-bar] button:is(:hover, :focus-visible) {
+  background-color: var(--tg-accent-soft);
+  color: var(--tg-accent);
+  transform: translateY(-2px) scale(1.12);
+  outline: 2px solid var(--tg-accent);
+  outline-offset: 1px;
+}
+[data-reaction-bar] button:active {
+  transform: scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is([data-action-menu], [data-composer-format], [data-reaction-bar]) button {
+    transition: none;
+  }
+  [data-reaction-bar] button:is(:hover, :focus-visible, :active) {
+    transform: none;
+  }
+}
+
+/* Shared desktop layout and interaction surfaces. */
+.app-sidebar { border-right: 1px solid var(--tg-border); }
+.account-header { padding: 8px 10px; }
+.account-avatar { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tg-accent) 12%, transparent); }
+.sidebar-footer { margin: 2px 8px 6px; padding: 11px 12px; justify-content: flex-start; gap: 10px; background: transparent; color: var(--tg-text-secondary); border-radius: 12px; }
+.sidebar-footer:hover { background: var(--tg-hover); color: var(--tg-text); }
+.chat-search { padding: 4px 8px 6px; border: 0; }
+.chat-search input { height: 36px; padding-left: 38px; border-color: transparent; border-radius: 13px; background: var(--tg-panel-alt); transition: border-color 150ms, box-shadow 150ms; }
+.chat-search input:focus { border-color: var(--tg-accent); box-shadow: 0 0 0 3px var(--tg-accent-soft); }
+.chat-list-scroll { padding: 0 0 10px; }
+.chat-section-label { padding: 8px 10px 4px; font-size: 10px; letter-spacing: .09em; }
+.chat-list-row { min-height: 62px; padding: 6px 10px; margin-block: 1px; border-radius: 10px; border: 1px solid transparent; }
+.chat-list-row.group-room-row { position: relative; min-height: 62px; padding: 6px 10px; margin: 0; border: 0; border-radius: 0; }
+.chat-list-row.group-room-row::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; border-bottom: 1px solid var(--tg-border); pointer-events: none; }
+.chat-list-row[aria-current="true"] { background: var(--tg-accent-soft); border-color: color-mix(in srgb, var(--tg-accent) 12%, transparent); }
+.chat-list-row.group-room-row[aria-current="true"] { border: 0; }
+.chat-list-scroll { width: calc(100% + 16px); margin-inline: -8px; overflow-x: hidden; }
+.room-avatar { width: 44px; height: 44px; margin: 0; font-size: 16px; background: var(--tg-accent-soft); color: var(--tg-accent); }
+.conversation-header { min-height: 60px; padding: 8px 18px; gap: 12px; }
+.conversation-title { font-size: 15px; font-weight: 650; letter-spacing: -.015em; }
+.icon-button { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; padding: 0; border-radius: 11px; border: 1px solid transparent; background: transparent; color: var(--tg-text-secondary); cursor: pointer; transition: background-color 150ms, color 150ms; }
+.icon-button:hover { background: var(--tg-hover); color: var(--tg-accent); }
+.icon-button:focus-visible { outline: 2px solid var(--tg-accent); outline-offset: 2px; }
+.timeline-scroll { padding: 10px 10px 10px; scrollbar-gutter: stable; }
+.timeline-messages { max-width: 960px; margin-inline: auto; }
+.message-row { padding-inline: 8px; padding-block: 1px; }
+.message-meta { margin-top: 4px; gap: 5px; font-size: 10px; line-height: 1.25; }
+.message-options { width: 26px; height: 26px; border-radius: 9px; background: var(--tg-panel); box-shadow: 0 2px 8px var(--tg-bubble-shadow); }
+.bubble-in > .message-options { left: calc(100% + 6px); }
+.bubble-out > .message-options { right: calc(100% + 6px); }
+.day-separator { border: 1px solid var(--tg-border); color: var(--tg-text-secondary); font-size: 10px; padding: 5px 12px; }
+.composer-dock { padding: 0; background: var(--tg-panel-alt); border: 0; }
+.message-composer { box-sizing: border-box; width: 100%; min-height: 48px; max-width: none; margin: 0; padding: 4px 6px 4px 0; border: 0; border-top: 1px solid var(--tg-border); border-radius: 0; box-shadow: none; transition: none; justify-content: center; }
+.message-composer:focus-within { border-color: var(--tg-border); box-shadow: none; }
+.composer-controls { min-height: 34px; gap: 3px; align-items: center; }
+.composer-tool.btn { width: 34px; height: 34px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--tg-text-secondary); transition: color 140ms ease, filter 140ms ease; }
+.composer-tool.btn:hover, .composer-tool.btn:focus-visible { border-radius: 0; background: transparent; color: var(--tg-accent); filter: drop-shadow(0 0 3px color-mix(in srgb, var(--tg-accent) 45%, transparent)); }
+.composer-send.btn { width: 34px; height: 34px; border: 0; border-radius: 0; padding: 0; background: transparent; color: var(--tg-text-secondary); transition: color 140ms ease, filter 140ms ease; }
+.composer-send.btn:hover:not(:disabled), .composer-send.btn:focus-visible { border-radius: 0; background: transparent; color: var(--tg-accent); filter: drop-shadow(0 0 4px color-mix(in srgb, var(--tg-accent) 55%, transparent)); }
+.composer-send.btn.composer-send-active { color: var(--tg-accent); }
+.composer-send.btn.composer-send-active:hover { color: color-mix(in srgb, var(--tg-accent) 72%, white); }
+button:disabled { cursor: not-allowed; opacity: .45; }
+.input:not(.composer-editor), select, textarea { border: 1px solid var(--tg-border); border-radius: 10px; padding: 9px 12px; background: var(--tg-panel); color: var(--tg-text); outline: none; }
+.input:not(.composer-editor):focus, select:focus, textarea:focus { border-color: var(--tg-accent); }
+:where(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--tg-accent); outline-offset: 2px; }
+[data-composer-format] { border-radius: 10px; padding: 5px; box-shadow: 0 12px 36px rgb(0 0 0 / .15); }
+[data-composer-format] button { border-radius: 6px; }
+[data-composer-format] button:not(:disabled):is(:hover, :focus-visible) { box-shadow: none; }
+@keyframes menu-pop-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+.menu-pop-in { transform-origin: bottom left; animation: menu-pop-in 150ms cubic-bezier(.2,.8,.2,1) both; }
+@media (prefers-reduced-motion: reduce) { .menu-pop-in { animation: none; } }
+* { scrollbar-width: thin; scrollbar-color: var(--tg-scrollbar) transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--tg-scrollbar); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: var(--tg-scrollbar-hover); }
+::-webkit-scrollbar-track { background: transparent; }
+@media (max-width: 900px) {
+  .conversation-header { padding-inline: 16px; }
+  .composer-dock { padding: 0; }
+  .timeline-scroll { padding-inline: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-search input, .icon-button, .message-composer { transition: none; }
+}
+
+.settings-layout { padding: 24px; gap: 20px; }
+.settings-nav { padding: 0 0 16px; border: 0; border-bottom: 1px solid var(--tg-border); border-radius: 0; background: transparent; }
+.settings-content { width: 100%; }
+.settings-content > section { max-width: 880px; margin-inline: auto; }
+.settings-content .card { border-radius: 14px; }
+.settings-content h2 { font-size: 21px; font-weight: 650; letter-spacing: -.02em; }
+.settings-content h3 { font-weight: 600; }
+.settings-content .card .card { background: var(--tg-panel); }
+@media (max-width: 900px) { .settings-layout { padding: 18px; } }
+
+.chat-list-row .room-avatar { width: 46px; height: 46px; font-size: 16px; }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>app.matrix.telegram</id>
+  <name>MatriXgram</name>
+  <summary>Telegram-like desktop client for the Matrix protocol</summary>
+  <description>
+    <p>MatriXgram is a Telegram-like desktop Matrix client built with Tauri and Svelte.</p>
+  </description>
+  <launchable type="desktop-id">app.matrix.telegram.desktop</launchable>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer_name>Luxuride</developer_name>
+</component>

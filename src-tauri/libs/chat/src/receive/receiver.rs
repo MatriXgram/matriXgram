@@ -63,3 +63,43 @@ pub async fn stream_room_messages_from_client(
         })
         .await
 }
+
+/// Paint timeline events already received by sync without a /messages request
+/// or media downloads. Returned in chronological order for the frontend.
+pub async fn cached_room_messages(
+    client: &matrix_sdk::Client,
+    room_id_raw: &str,
+    limit: usize,
+) -> Option<MatrixGetChatMessagesResponse> {
+    let room_id = protocol::parse_room_id(room_id_raw).ok()?;
+    let room = client.get_room(&room_id)?;
+    client.event_cache().subscribe().ok()?;
+    let (cache, _handles) = room.event_cache().await.ok()?;
+    let events = cache.events().await.ok()?;
+    if events.is_empty() {
+        return None;
+    }
+    // Include reaction events before trimming parsed messages to the limit.
+    let (mut messages, _) = super::parsing::parse_message_chunk(
+        &crate::media::CachedMediaResolver,
+        client,
+        &room_id,
+        events
+            .into_iter()
+            .rev()
+            .take(limit.saturating_mul(4).max(100))
+            .collect(),
+        &mut ReactionAccumulator::new(),
+    )
+    .await;
+    messages.truncate(limit);
+    messages.reverse();
+    if messages.is_empty() {
+        return None;
+    }
+    Some(MatrixGetChatMessagesResponse {
+        room_id: room_id_raw.into(),
+        next_from: room.last_prev_batch(),
+        messages,
+    })
+}

@@ -131,6 +131,9 @@ async fn get_room_settings(
     Ok(MatrixRoomSettingsResponse {
         room_id: room_id.to_string(),
         kind,
+        topic: room.topic(),
+        canonical_alias: room.canonical_alias().map(|alias| alias.to_string()),
+        joined_members: room.joined_members_count(),
         notification_mode: notification_mode.map(notification_mode_from_sdk),
         notification_mode_user_defined,
         is_favourite: room.is_favourite(),

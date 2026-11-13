@@ -1,65 +1,50 @@
-# Singularity
+# MatriXgram
 
-Singularity is a desktop Matrix client written in tauri.
+A Telegram-inspired desktop client for [Matrix](https://matrix.org/), built
+with Tauri, Rust and SvelteKit.
 
-The main point of singularity is to make performant matrix client. Most of the computational logic is handled in Rust utilizing multi-threading and async.
+## Features
 
-## Prerequisites
+- Matrix password and OAuth/SSO sign-in, saved sessions, rooms and spaces.
+- Chat with replies, reactions, mentions, formatting, images, video and files.
+- Unread markers, automatic history loading and jump to latest.
+- Public-room explorer, room details, joining and user profiles.
+- SAS device verification and customizable themes.
+- Open message links in the system browser or copy them from the context menu.
 
-### Option 1: VS Code Dev Containers (recommended)
+Threads are partially implemented: thread relations are parsed, but thread
+views and replies are not available yet. Sending edits and redactions, stickers,
+voice messages, desktop notifications and calls are also not implemented.
 
-1. Install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension in VS Code.
-2. Open the workspace in a container:
-   - Press `Ctrl+Shift+P` → **Dev Containers: Reopen in Container**
-3. The container will build with all dependencies (Node.js, Rust, Tauri native libs) pre-installed.
+## Getting started
 
-### Option 2: Manual setup
-
-Required tools:
-
-- Node.js 22+
-- npm
-- Rust toolchain (stable)
-- cargo-tauri
-
-On Linux, you also need Tauri/WebKitGTK native dependencies.
-
-## Getting Started
-
-1. Install JS dependencies:
+Requirements: Node.js 22+, npm, stable Rust, and the native Tauri dependencies
+for your operating system. On Windows, install Visual Studio Build Tools with
+the Desktop development with C++ workload.
 
 ```bash
-npm install
+npm ci
+npm run tauri -- dev
 ```
 
-2. Run in desktop dev mode:
+Build a release package with:
 
 ```bash
-npm tauri dev
+npm run tauri -- build
 ```
 
-3. Build production artifacts:
+## Development checks
 
 ```bash
-npm tauri build
+npm run check
+cd src-tauri
+cargo check --workspace --all-targets
+cargo test --workspace
 ```
 
-## Development Commands
+## Attribution and licence
 
-Frontend checks:
-
-```bash
-npm check
-```
-
-Frontend build:
-
-```bash
-npm build
-```
-
-Rust tests (from src-tauri):
-
-```bash
-cargo test
-```
+MatriXgram is a fork of [Singularity](https://github.com/Luxuride/singularity)
+by Luxuride, licensed under **GPL-3.0-or-later**. This project retains the
+upstream GPL license. The Matrix Rust SDK and its JavaScript components are
+Apache-2.0.

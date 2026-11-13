@@ -59,6 +59,12 @@ function rustTypeToTs(typeExpr, knownTypes) {
     return `${rustTypeToTs(vecMatch[1], knownTypes)}[]`;
   }
 
+  // HashMap<K, V> / BTreeMap<K, V> -> Record<K, V>
+  const mapMatch = t.match(/^(?:HashMap|BTreeMap)<\s*([^,>]+?)\s*,\s*(.+)>$/);
+  if (mapMatch) {
+    return `Record<${rustTypeToTs(mapMatch[1], knownTypes)}, ${rustTypeToTs(mapMatch[2], knownTypes)}>`;
+  }
+
   // [T; N] -> T[] (fixed-size array)
   const arrayMatch = t.match(/^\[(.+);\s*\d+\]$/);
   if (arrayMatch) {
@@ -113,12 +119,18 @@ function parseTypeBlock(source) {
 }
 
 // Parse struct fields: `pub name: Type,` (skipping serde attribute lines).
+// The type is read greedily so that generics with commas (`BTreeMap<K, V>`)
+// survive, and the trailing comma is stripped afterwards.
 function parseStructFields(body) {
   const fields = [];
-  const fieldRegex = /^\s*pub\s+(\w+)\s*:\s*([^,]+),?\s*$/gm;
+  const fieldRegex = /^\s*pub\s+(\w+)\s*:\s*(.+?)\s*$/gm;
   let match;
   while ((match = fieldRegex.exec(body)) !== null) {
-    fields.push({ name: match[1], type: match[2].trim() });
+    const type = match[2].trim().replace(/,$/, "").trim();
+    if (!type) {
+      continue;
+    }
+    fields.push({ name: match[1], type });
   }
   return fields;
 }

@@ -12,7 +12,7 @@
 
   import { buildDocFromDraft, composerSchema } from "./editorSchema";
   import { docToDraft, getSelectionOffsetsFromState, textOffsetToPos } from "./editorHelpers";
-  import type { ShortcodeRange, SuggestionPosition } from "./types";
+  import type { ComposerMention, ShortcodeRange, SuggestionPosition } from "./types";
 
   interface Props {
     draft: string;
@@ -22,6 +22,7 @@
     pickerCustomEmoji: PickerCustomEmoji[];
     shortcodeRange: ShortcodeRange | null;
     shortcodeSuggestionCount: number;
+    onMentionKeyDown?: (event: KeyboardEvent) => boolean;
     onDraftChange?: (draft: string) => void;
     onCursorChange?: (cursor: number) => void;
     onSubmit?: (draft: string) => void;
@@ -37,6 +38,7 @@
     pickerCustomEmoji,
     shortcodeRange,
     shortcodeSuggestionCount,
+    onMentionKeyDown,
     onDraftChange,
     onCursorChange,
     onSubmit,
@@ -48,6 +50,75 @@
   let editorView = $state<EditorView | null>(null);
   let cursorPosition = $state(0);
   let suppressDraftSync = false;
+  let formatPosition = $state<{ x: number; y: number } | null>(null);
+  const formats = [
+    { label: "Bold", prefix: "**", suffix: "**" },
+    { label: "Italic", prefix: "*", suffix: "*" },
+    { label: "Strikethrough", prefix: "~~", suffix: "~~" },
+    { label: "Inline code", prefix: "`", suffix: "`" },
+    { label: "Block code", prefix: "", suffix: "" },
+    { label: "Quote", prefix: "> ", suffix: "" },
+  ];
+
+  function updateFormatPosition(view: EditorView) {
+    if (view.state.selection.empty || isDisabled) { formatPosition = null; return; }
+    const coords = view.coordsAtPos(view.state.selection.from);
+    formatPosition = {
+      x: Math.max(8, Math.min(coords.left, window.innerWidth - 200)),
+      y: Math.max(8, Math.min(coords.top - 224, window.innerHeight - 224)),
+    };
+  }
+
+  function applyFormat(format: typeof formats[number]) {
+    if (!editorView || isDisabled) return;
+    const { start, end } = getSelectionOffsetsFromState(editorView.state);
+    const current = docToDraft(editorView.state.doc);
+    const text = current.slice(start, end);
+    if (!text) return;
+    let replacement: string;
+    if (format.label === "Block code") {
+      const runs = text.match(/`+/g) ?? [];
+      const fence = "`".repeat(Math.max(3, ...runs.map((run) => run.length + 1)));
+      replacement = (start > 0 && current[start - 1] !== "\n" ? "\n" : "") +
+        fence + "\n" + text + "\n" + fence +
+        (end < current.length && current[end] !== "\n" ? "\n" : "");
+    } else if (format.label === "Quote") {
+      replacement = (start > 0 && current[start - 1] !== "\n" ? "\n" : "") + text.split("\n").map((line) => "> " + line).join("\n") +
+        (end < current.length && current[end] !== "\n" ? "\n" : "");
+    } else replacement = format.prefix + text + format.suffix;
+    // Use a transaction so formatting can be undone with Ctrl+Z.
+    const from = editorView.state.selection.from;
+    const to = editorView.state.selection.to;
+    const fragment = buildDocFromDraft(replacement, pickerCustomEmoji);
+    const slice = fragment.slice(1, fragment.content.size - 1);
+    editorView.dispatch(editorView.state.tr.replaceRange(from, to, slice).scrollIntoView());
+    editorView.focus();
+    formatPosition = null;
+  }
+
+  function buildDocPreservingMentions(value: string, sourceDoc: EditorState["doc"]) {
+    const doc = buildDocFromDraft(value, pickerCustomEmoji);
+    const mentions: Array<{ start: number; end: number; userId: string; displayName: string }> = [];
+    sourceDoc.descendants((node, position) => {
+      if (node.type.name !== "mention") return;
+      const displayName = String(node.attrs.displayName ?? "");
+      const start = draftBetween(sourceDoc, 0, position).length;
+      if (value.slice(start, start + displayName.length + 1) !== `@${displayName}`) return;
+      mentions.push({ start, end: start + displayName.length + 1, userId: String(node.attrs.userId ?? ""), displayName });
+    });
+    if (mentions.length === 0) return doc;
+
+    let transaction = EditorState.create({ schema: composerSchema, doc }).tr;
+    for (const mention of mentions.reverse()) {
+      const from = textOffsetToPos(transaction.doc, mention.start);
+      const to = textOffsetToPos(transaction.doc, mention.end);
+      transaction = transaction.replaceWith(from, to, composerSchema.node("mention", {
+        userId: mention.userId,
+        displayName: mention.displayName,
+      }));
+    }
+    return transaction.doc;
+  }
 
   onDestroy(() => {
     editorView?.destroy();
@@ -76,16 +147,23 @@
 
     const view = new EditorView(editorMountElement, {
       state,
-      editable: () => !isDisabled && !isSending,
+      editable: () => !isDisabled,
       clipboardTextSerializer: (slice) =>
         slice.content.textBetween(0, slice.content.size, "\n", (leafNode) => {
           if (leafNode.type.name === "customEmoji") {
             return leafNode.attrs.token ?? "";
           }
+          if (leafNode.type.name === "mention") {
+            return `@${leafNode.attrs.displayName ?? ""}`;
+          }
 
           return "";
         }),
       handleKeyDown: (view, event) => {
+        if (onMentionKeyDown?.(event)) {
+          return true;
+        }
+
         const isPasteShortcut =
           (event.metaKey || event.ctrlKey) &&
           event.key.toLowerCase() === "v" &&
@@ -112,7 +190,7 @@
         }
 
         event.preventDefault();
-        if (isDisabled || isSending) {
+        if (isDisabled) {
           return true;
         }
 
@@ -130,7 +208,7 @@
         const selectionOffsets = getSelectionOffsetsFromState(nextState);
 
         const nextDraft = docToDraft(nextState.doc);
-        const normalizedDoc = buildDocFromDraft(nextDraft, pickerCustomEmoji);
+        const normalizedDoc = buildDocPreservingMentions(nextDraft, nextState.doc);
 
         if (normalizedDoc.eq(nextState.doc)) {
           view.updateState(nextState);
@@ -147,6 +225,7 @@
           view.updateState(normalizedState.apply(normalizedState.tr.setSelection(selection)));
         }
 
+        updateFormatPosition(view);
         const appliedState = view.state;
         const updatedDraft = docToDraft(appliedState.doc);
         if (draft !== updatedDraft) {
@@ -180,10 +259,10 @@
 
     editorView.setProps({
       ...editorView.props,
-      editable: () => !isDisabled && !isSending,
+      editable: () => !isDisabled,
     });
 
-    if (isDisabled || isSending) {
+    if (isDisabled) {
       editorView.dom.setAttribute("tabindex", "-1");
     } else {
       editorView.dom.setAttribute("tabindex", "0");
@@ -271,6 +350,7 @@
     const selection = TextSelection.create(nextDoc, pos, pos);
 
     editorView.updateState(nextState.apply(nextState.tr.setSelection(selection)));
+    formatPosition = null;
     editorView.focus();
 
     suppressDraftSync = true;
@@ -306,6 +386,36 @@
 
   export function focusEditor() {
     editorView?.focus();
+  }
+
+  export function insertMention(start: number, end: number, userId: string, displayName: string) {
+    if (!editorView) return;
+    const from = textOffsetToPos(editorView.state.doc, start);
+    const to = textOffsetToPos(editorView.state.doc, end);
+    const mention = composerSchema.node("mention", { userId, displayName });
+    let transaction = editorView.state.tr.replaceWith(from, to, mention);
+    transaction = transaction.insertText(" ", from + mention.nodeSize);
+    transaction = transaction.setSelection(TextSelection.create(transaction.doc, from + mention.nodeSize + 1));
+    editorView.dispatch(transaction.scrollIntoView());
+    editorView.focus();
+  }
+
+  export function getMentions(): ComposerMention[] {
+    if (!editorView) return [];
+    const mentions: ComposerMention[] = [];
+    const doc = editorView.state.doc;
+    doc.descendants((node, position) => {
+      if (node.type.name !== "mention") return;
+      const displayName = String(node.attrs.displayName ?? "");
+      const start = draftBetween(doc, 0, position).length;
+      mentions.push({
+        userId: String(node.attrs.userId ?? ""),
+        displayName,
+        start,
+        end: start + displayName.length + 1,
+      });
+    });
+    return mentions;
   }
 
   async function handleKeyboardPaste() {
@@ -392,4 +502,18 @@
 
 </script>
 
+<svelte:window onresize={() => (formatPosition = null)} onpointerdown={(event) => {
+  if (event.target instanceof Element && !event.target.closest("[data-composer-format]") &&
+      !editorMountElement?.contains(event.target)) formatPosition = null;
+}} />
 <div bind:this={editorMountElement}></div>
+{#if formatPosition && !isDisabled}
+  <div data-composer-format role="toolbar" aria-orientation="vertical" aria-label="Text formatting"
+    class="fixed z-[70] flex max-h-[calc(100dvh-16px)] max-w-[calc(100vw-16px)] w-48 flex-col overflow-y-auto rounded-lg border border-hairline bg-panel py-1 shadow-lg"
+    style={`left: ${formatPosition.x}px; top: ${formatPosition.y}px;`}>
+    {#each formats as format}
+      <button type="button" class="w-full shrink-0 px-3 py-2 text-left text-[13px] hover:bg-hover focus-visible:bg-hover focus-visible:outline-none" onpointerdown={(event) => event.preventDefault()}
+        onclick={() => applyFormat(format)}>{format.label}</button>
+    {/each}
+  </div>
+{/if}

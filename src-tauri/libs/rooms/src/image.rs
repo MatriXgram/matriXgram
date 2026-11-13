@@ -111,6 +111,11 @@ mod tests {
 
     fn chat_with_image(image_url: Option<&str>) -> MatrixChatSummary {
         MatrixChatSummary {
+            last_message_preview: None,
+            last_message_ts: None,
+            unread_count: 0,
+            is_pinned: false,
+            is_muted: false,
             room_id: String::from("!room:example.org"),
             display_name: String::from("Example"),
             image_url: image_url.map(ToOwned::to_owned),

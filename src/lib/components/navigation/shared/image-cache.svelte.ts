@@ -29,7 +29,7 @@ export class ImageCache {
 
     const request = loader()
       .then((value) => {
-        this.cache.set(key, value);
+        if (value) this.cache.set(key, value);
         return value;
       })
       .catch(() => null)
@@ -65,7 +65,7 @@ export const senderAvatarCache = new ImageCache();
 /// Bumped whenever a profile avatar change lands (from the
 /// PROFILE_AVATAR_UPDATED handler after the cache has been invalidated);
 /// message avatars read it so their load effects re-run and re-resolve.
-export const avatarChangeEpoch = { current: 0 };
+export const avatarChangeEpoch = $state({ current: 0 });
 
 /// Drop cached avatar entries for a user. Pass a `roomId` to scope the
 /// invalidation to one room's cache key, or omit it to clear every room.

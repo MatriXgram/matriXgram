@@ -8,6 +8,7 @@
 //! - `chat`         — messages, media, reactions, emoji, avatars, clipboard
 //! - `verification` — device verification / SAS flows
 //! - `settings`    — profile (display name, avatar) and password change
+//! - `theme`       — Telegram Desktop theme files
 //!
 //! Shared binder infrastructure (paths, event sink) lives here.
 
@@ -15,6 +16,7 @@ pub mod auth;
 pub mod chat;
 pub mod rooms;
 pub mod settings;
+pub mod theme;
 pub mod verification;
 
 use tauri::{AppHandle, Emitter, Manager};

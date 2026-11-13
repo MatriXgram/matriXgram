@@ -9,7 +9,6 @@ use types::chat::{
 use types::event_paths;
 use types::{EventSink, RoomRefreshTrigger, RoomUpdateTriggerState};
 
-use super::super::helpers::has_stale_cached_media_urls;
 use super::super::persistence::{
     is_cacheable_initial_request, load_initial_room_messages, store_initial_room_messages,
 };
@@ -29,8 +28,35 @@ fn emit_stream_event(
         .map_err(|error| format!("Failed to emit {label}: {error}"))
 }
 
-/// Streams a room's chat messages to the frontend, emitting one event per
-/// message followed by a terminal `done` event. Owns the per-stream mutable
+fn emit_message_batch(
+    sink: &dyn EventSink,
+    request: &MatrixStreamChatMessagesRequest,
+    sequence: u32,
+    messages: Vec<MatrixChatMessage>,
+) -> Result<u32, String> {
+    if messages.is_empty() {
+        return Ok(sequence);
+    }
+    let count = messages.len() as u32;
+    emit_stream_event(
+        sink,
+        &MatrixChatMessageStreamEvent {
+            room_id: request.room_id.clone(),
+            stream_id: request.stream_id.clone(),
+            load_kind: request.load_kind,
+            sequence,
+            message: None,
+            messages: Some(messages),
+            next_from: None,
+            done: false,
+        },
+        "chat message batch",
+    )?;
+    Ok(sequence.saturating_add(count))
+}
+
+/// Streams initial messages as a batch and older messages individually,
+/// followed by a terminal `done` event. Owns the per-stream mutable
 /// state (pagination cursor, buffered batches, sequence counter) so each phase
 /// of the stream is a small, independently testable method.
 pub(super) struct ChatMessageStreamer<'a> {
@@ -110,6 +136,7 @@ impl<'a> ChatMessageStreamer<'a> {
                 load_kind,
                 sequence: self.sequence,
                 message: Some(message),
+                messages: None,
                 next_from: None,
                 done: false,
             },
@@ -117,6 +144,18 @@ impl<'a> ChatMessageStreamer<'a> {
         )?;
 
         self.sequence = self.sequence.saturating_add(1);
+        Ok(())
+    }
+
+    fn emit_batch(
+        &mut self,
+        request: &MatrixStreamChatMessagesRequest,
+        messages: Vec<MatrixChatMessage>,
+    ) -> Result<(), String> {
+        if messages.is_empty() {
+            return Ok(());
+        }
+        self.sequence = emit_message_batch(self.event_sink(), request, self.sequence, messages)?;
         Ok(())
     }
 
@@ -135,6 +174,7 @@ impl<'a> ChatMessageStreamer<'a> {
                 load_kind,
                 sequence: self.sequence,
                 message: None,
+                messages: None,
                 next_from,
                 done: true,
             },
@@ -145,14 +185,16 @@ impl<'a> ChatMessageStreamer<'a> {
     }
 
     fn enqueue_room_snapshot_refresh(&self, room_id: &str) {
-        // Sidebar-only: the room list still has to be reconciled, but a cache
-        // hit must not trigger a message re-fetch on top of the emission it
-        // has just produced.
+        // The cached page is only as fresh as the fetch that wrote it, so it
+        // does not contain the messages that were sent since. The worker
+        // re-fetches the newest page and emits it; the frontend appends what it
+        // has not seen yet. Without this, a message sent after the cache was
+        // written would never show up in that room again.
         let _ = self
             .room_update_trigger_state()
             .enqueue(RoomRefreshTrigger {
                 selected_room_id: Some(room_id.to_string()),
-                include_selected_messages: false,
+                include_selected_messages: true,
             });
     }
 
@@ -175,21 +217,7 @@ impl<'a> ChatMessageStreamer<'a> {
         .await?;
 
         if let Some(cached) = cached {
-            if has_stale_cached_media_urls(&cached.messages) {
-                // Return false and let this stream re-fetch inline; waking the
-                // worker as well would mean two concurrent full fetches of the
-                // same page, emitted under two different stream ids.
-                return Ok(false);
-            }
-
-            for message in cached.messages {
-                self.emit_message(
-                    request.room_id.as_str(),
-                    request.stream_id.as_str(),
-                    request.load_kind,
-                    message,
-                )?;
-            }
+            self.emit_batch(request, cached.messages)?;
 
             self.emit_completion(
                 request.room_id.as_str(),
@@ -311,21 +339,14 @@ impl<'a> ChatMessageStreamer<'a> {
         request: &MatrixStreamChatMessagesRequest,
     ) -> Result<(), String> {
         self.sequence = 0;
-
-        let initial_messages = std::mem::take(&mut self.initial_messages);
-
-        for message in initial_messages.into_iter().rev() {
-            if self.cacheable_initial_request {
-                self.cache_messages.push(message.clone());
-            }
-
-            self.emit_message(
-                request.room_id.as_str(),
-                request.stream_id.as_str(),
-                request.load_kind,
-                message,
-            )?;
+        let messages: Vec<_> = std::mem::take(&mut self.initial_messages)
+            .into_iter()
+            .rev()
+            .collect();
+        if self.cacheable_initial_request {
+            self.cache_messages = messages.clone();
         }
+        self.emit_batch(request, messages)?;
 
         Ok(())
     }
@@ -369,6 +390,20 @@ impl<'a> ChatMessageStreamer<'a> {
             });
         }
 
+        if matches!(request.load_kind, MatrixMessageLoadKind::Initial) {
+            if let Some(preview) = super::receiver::cached_room_messages(
+                self.context.client,
+                &request.room_id,
+                self.target_message_count,
+            )
+            .await
+            {
+                self.emit_batch(&request, preview.messages)?;
+                // Preview is not the fetched page budget; the network page also
+                // supplies a reliable pagination cursor and enriched media.
+                self.sequence = 0;
+            }
+        }
         let fetch_result = self.fetch_and_emit_batches(&request, &mut fetch_page).await;
 
         if let Err(error) = fetch_result {
@@ -409,5 +444,50 @@ impl<'a> ChatMessageStreamer<'a> {
             stream_id: request.stream_id.clone(),
             started: true,
         })
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+    use std::sync::Mutex;
+    #[derive(Default)]
+    struct Sink(Mutex<Vec<serde_json::Value>>);
+    impl EventSink for Sink {
+        fn emit(&self, _: &str, payload: &serde_json::Value) -> Result<(), String> {
+            self.0.lock().unwrap().push(payload.clone());
+            Ok(())
+        }
+    }
+    fn request() -> MatrixStreamChatMessagesRequest {
+        serde_json::from_value(serde_json::json!({ "roomId":"!r:example.org", "streamId":"s", "loadKind":"initial", "from":null, "limit":50 })).unwrap()
+    }
+    fn message(id: &str) -> MatrixChatMessage {
+        serde_json::from_value(serde_json::json!({
+            "eventId":id, "sender":"@a:example.org", "body":id, "timestamp":1,
+            "encrypted":false, "decryptionStatus":"plaintext", "verificationStatus":"unknown"
+        }))
+        .unwrap()
+    }
+    #[test]
+    fn initial_page_arrives_in_one_event_with_order_and_sequence_intact() {
+        let sink = Sink::default();
+        let next = emit_message_batch(&sink, &request(), 3, vec![message("$old"), message("$new")])
+            .unwrap();
+        let events = sink.0.lock().unwrap();
+        assert_eq!(next, 5);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["messages"][0]["eventId"], "$old");
+        assert_eq!(events[0]["messages"][1]["eventId"], "$new");
+        assert_eq!(events[0]["streamId"], "s");
+        assert_eq!(events[0]["sequence"], 3);
+        assert_eq!(events[0]["done"], false);
+        assert!(events[0]["messages"][0]["senderDisplayName"].is_null());
+    }
+    #[test]
+    fn empty_batch_does_not_emit_or_advance() {
+        let sink = Sink::default();
+        assert_eq!(emit_message_batch(&sink, &request(), 4, vec![]).unwrap(), 4);
+        assert!(sink.0.lock().unwrap().is_empty());
     }
 }

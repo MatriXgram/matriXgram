@@ -1,3 +1,4 @@
+import { rememberHomeserver } from "./homeserver";
 import { invokeMatrixCommand } from "../command-client";
 import type {
   MatrixAuthenticatedSessionResponse,
@@ -24,21 +25,27 @@ export async function matrixStartOAuth(
 export async function matrixCompleteOAuth(
   input: MatrixCompleteOAuthRequest,
 ): Promise<MatrixAuthenticatedSessionResponse> {
-  return invokeMatrixCommand<MatrixAuthenticatedSessionResponse>("matrix_complete_oauth", {
+  const response = await invokeMatrixCommand<MatrixAuthenticatedSessionResponse>("matrix_complete_oauth", {
     request: input,
   });
+  if (response.authenticated) rememberHomeserver(response.homeserverUrl);
+  return response;
 }
 
 export async function matrixPasswordLogin(
   input: MatrixPasswordLoginRequest,
 ): Promise<MatrixAuthenticatedSessionResponse> {
-  return invokeMatrixCommand<MatrixAuthenticatedSessionResponse>("matrix_password_login", {
+  const response = await invokeMatrixCommand<MatrixAuthenticatedSessionResponse>("matrix_password_login", {
     request: input,
   });
+  if (response.authenticated) rememberHomeserver(response.homeserverUrl);
+  return response;
 }
 
 export async function matrixSessionStatus(): Promise<MatrixSessionStatusResponse> {
-  return invokeMatrixCommand<MatrixSessionStatusResponse>("matrix_session_status");
+  const response = await invokeMatrixCommand<MatrixSessionStatusResponse>("matrix_session_status");
+  if (response.authenticated) rememberHomeserver(response.homeserverUrl);
+  return response;
 }
 
 export async function matrixLogout(): Promise<MatrixLogoutResponse> {

@@ -55,7 +55,7 @@ pub struct PreparedUpload {
 ///
 /// This list is the single source of truth: it is shared by the kind detection
 /// above and the mime guess below, which previously enumerated video extensions
-/// independently and disagreed — `detect_media_kind` routed `.mkv` and `.avi`
+/// independently and disagreed Ã¢â‚¬â€ `detect_media_kind` routed `.mkv` and `.avi`
 /// to `MediaKind::Video`, but `guess_video_mime` had no arm for either and its
 /// catch-all labelled them `video/webm`. The homeserver stores that content type
 /// on the mxc object and stamps it into the event, so a Matroska file reached the
@@ -176,7 +176,7 @@ pub fn temp_output_path(path: &Path, extension: &str) -> PathBuf {
 
     if std::fs::create_dir_all(&output).is_err() {
         output = std::env::temp_dir();
-        output.push("singularity");
+        output.push("matrixgram");
         output.push("media-cache");
         output.push("transcode");
         let _ = std::fs::create_dir_all(&output);
@@ -187,7 +187,7 @@ pub fn temp_output_path(path: &Path, extension: &str) -> PathBuf {
         .and_then(OsStr::to_str)
         .unwrap_or("attachment");
     let nonce = rand::random::<u64>();
-    output.push(format!("singularity-{stem}-{nonce}.{extension}"));
+    output.push(format!("matrixgram-{stem}-{nonce}.{extension}"));
     output
 }
 

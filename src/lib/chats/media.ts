@@ -1,3 +1,5 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
+
 import type {
   MatrixChatSummary,
   MatrixChatMessage,
@@ -19,7 +21,16 @@ export function isMediaUrl(value: string): boolean {
 /// The backend resolves all media to `asset://` URLs (or leaves http(s) URLs
 /// untouched). This passes the backend-provided URL through unchanged.
 export function normalizeImageUrl(imageUrl: string | null | undefined): string | null {
-  return imageUrl || null;
+  if (!imageUrl) return null;
+  if (imageUrl.startsWith("asset://localhost/") &&
+      typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) {
+    try {
+      return convertFileSrc(decodeURIComponent(imageUrl.slice("asset://localhost/".length)));
+    } catch {
+      return null;
+    }
+  }
+  return imageUrl;
 }
 
 export function normalizeMessageImageUrl(message: MatrixChatMessage): MatrixChatMessage {
@@ -53,13 +64,10 @@ export function normalizeSelectedRoomMessagesEvent(
 export function normalizeChatMessageStreamEvent(
   payload: MatrixChatMessageStreamEvent,
 ): MatrixChatMessageStreamEvent {
-  if (!payload.message) {
-    return payload;
-  }
-
   return {
     ...payload,
-    message: normalizeMessageImageUrl(payload.message),
+    message: payload.message ? normalizeMessageImageUrl(payload.message) : null,
+    messages: payload.messages?.map(normalizeMessageImageUrl) ?? null,
   };
 }
 
@@ -101,6 +109,11 @@ if (vitest) {
         encrypted: false,
         decryptionStatus: "plaintext",
         verificationStatus: "unknown",
+        isDeleted: false,
+        threadReplyCount: 0,
+        mentionsMe: false,
+        isSticker: false,
+        isVoice: false,
       };
       const normalized = normalizeMessageImageUrl(message);
       expect(normalized.customEmojis[0].url).toBe("asset://localhost/img.png");

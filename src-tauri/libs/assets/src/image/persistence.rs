@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use log::warn;
+use log::{info, warn};
 use percent_encoding::percent_decode_str;
 
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -84,8 +84,10 @@ pub fn initialize_media_cache_dir(cache_dir: &Path) {
     let _ = MEDIA_CACHE_DIR.set(resolved);
 }
 
-/// Remove all cached media files from the media cache directory. Called on app
-/// startup so stale media from a previous session does not accumulate on disk.
+/// Remove all cached media files from the media cache directory.
+///
+/// Kept for a "clear cache" action; the app does not call it on startup any
+/// more, because that threw away every image the user had already seen.
 pub fn clear_media_cache() {
     let cache_dir = media_cache_dir();
     if !cache_dir.exists() {
@@ -98,6 +100,74 @@ pub fn clear_media_cache() {
     }
 
     let _ = fs::create_dir_all(&cache_dir);
+}
+
+/// Maximum size of the media cache before the oldest files are dropped.
+const MEDIA_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Trim the media cache to `MEDIA_CACHE_MAX_BYTES`, dropping the oldest files
+/// first.
+///
+/// Called on startup: the cache is disposable, so a full disk is worse than a
+/// re-download, but a cache that is wiped on every launch makes the app feel
+/// broken on a slow connection.
+pub fn trim_media_cache() {
+    let cache_dir = media_cache_dir();
+    if !cache_dir.exists() {
+        return;
+    }
+
+    let Ok(entries) = fs::read_dir(&cache_dir) else {
+        return;
+    };
+
+    let mut files = Vec::new();
+    let mut total_bytes = 0_u64;
+
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+
+        if !metadata.is_file() {
+            continue;
+        }
+
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+
+        total_bytes = total_bytes.saturating_add(metadata.len());
+        files.push((modified, metadata.len(), entry.path()));
+    }
+
+    if total_bytes <= MEDIA_CACHE_MAX_BYTES {
+        return;
+    }
+
+    files.sort_by_key(|(modified, _, _)| *modified);
+
+    let mut remaining = total_bytes;
+    for (_, size, path) in files {
+        if remaining <= MEDIA_CACHE_MAX_BYTES {
+            break;
+        }
+
+        if let Err(error) = fs::remove_file(&path) {
+            warn!("Failed to remove cached media file: {error}");
+            continue;
+        }
+
+        remaining = remaining.saturating_sub(size);
+    }
+
+    info!(
+        "Trimmed media cache from {} to {} bytes",
+        total_bytes, remaining
+    );
 }
 
 /// Persist a normalized media payload to the media cache directory and return
@@ -182,7 +252,7 @@ pub fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
             return None;
         }
 
-        return Some(PathBuf::from(path.as_ref()));
+        return Some(asset_url_path_to_file_path(&path));
     }
 
     if raw_url.starts_with("file://") {
@@ -195,6 +265,28 @@ pub fn resolved_media_file_path(raw_url: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Turn the decoded path of an `asset://` URL back into a filesystem path.
+///
+/// A URL path always starts with a slash, but on Windows that slash is not
+/// part of the drive letter: the URL of `C:\cache\img.png` decodes to
+/// `/C:\cache\img.png`, and the extra slash would turn it into a path
+/// relative to the current drive. The separators are normalised for the
+/// platform as well, because the encoder leaves the path separators of the
+/// source platform untouched.
+fn asset_url_path_to_file_path(decoded_path: &str) -> PathBuf {
+    let trimmed = decoded_path.strip_prefix('/').unwrap_or(decoded_path);
+
+    let bytes = trimmed.as_bytes();
+    let is_windows_drive_path =
+        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+
+    if is_windows_drive_path || cfg!(windows) {
+        return PathBuf::from(trimmed.replace('/', "\\"));
+    }
+
+    PathBuf::from(trimmed)
 }
 
 pub fn cached_media_path_for_source_url(source_url: &str) -> Option<String> {
@@ -228,9 +320,19 @@ fn cached_media_urls() -> &'static Mutex<HashMap<String, String>> {
 fn media_cache_dir() -> PathBuf {
     MEDIA_CACHE_DIR
         .get_or_init(|| {
-            let mut dir = std::env::temp_dir();
-            dir.push("singularity");
-            dir.push("media-cache");
+            let root = std::env::temp_dir();
+            let dir = root.join("matrixgram").join("media-cache");
+            let legacy = root.join("matrix-telegram").join("media-cache");
+
+            if !dir.exists() && legacy.exists() {
+                if let Some(parent) = dir.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if std::fs::rename(&legacy, &dir).is_err() {
+                    return legacy;
+                }
+            }
+
             dir
         })
         .clone()

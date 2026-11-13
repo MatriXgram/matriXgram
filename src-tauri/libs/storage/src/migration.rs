@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 /// The version this build expects. Bump it and append a migration to
 /// [`MIGRATIONS`] whenever the schema changes.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// Applied in ascending order. Each entry is `(version, sql)`: a database at
 /// version *n* runs every entry whose version is greater than *n*.
@@ -18,6 +18,14 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (
         2,
         include_str!("migrations/002_user_avatar_source_cache.sql"),
+    ),
+    (
+        3,
+        include_str!("migrations/003_message_sender_display_name.sql"),
+    ),
+    (
+        4,
+        include_str!("migrations/004_message_image_dimensions.sql"),
     ),
 ];
 
@@ -256,6 +264,29 @@ mod tests {
 
         assert_eq!(version(&connection), SCHEMA_VERSION);
         assert!(table_exists(&connection, "message_cache_state"));
+    }
+
+    #[test]
+    fn sender_name_upgrade_preserves_existing_messages() {
+        let connection = Connection::open_in_memory().expect("open");
+        super::apply(&connection, &super::MIGRATIONS[..2]).expect("old schema");
+        connection.execute(
+            "INSERT INTO message_cache (room_id, sequence, sender, body, encrypted, decryption_status, verification_status, updated_at)
+             VALUES ('!room:example.org', 0, '@alice:example.org', 'hello', 0, 'plaintext', 'unknown', 0)",
+            [],
+        ).expect("old cached message");
+        migrate(&connection).expect("upgrade");
+        let (sender, body, name): (String, String, Option<String>) = connection
+            .query_row(
+                "SELECT sender, body, sender_display_name FROM message_cache",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read upgraded message");
+        assert_eq!(sender, "@alice:example.org");
+        assert_eq!(body, "hello");
+        assert_eq!(name, None);
+        assert_eq!(version(&connection), SCHEMA_VERSION);
     }
 
     #[test]

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=MatriXgram
+Comment=MatriXgram, a Telegram-like Matrix client
+Exec=matrixgram %U
+Icon=app.matrix.telegram
+Terminal=false
+Type=Application
+Categories=Network;Chat;InstantMessaging;
+StartupNotify=true
+MimeType=x-scheme-handler/matrix;

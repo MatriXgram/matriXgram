@@ -4,5 +4,8 @@ mod receiver;
 mod stream;
 
 pub use receiver::{
-    fetch_room_messages_from_client, stream_room_messages_from_client, StreamRoomMessagesContext,
+    cached_room_messages, fetch_room_messages_from_client, stream_room_messages_from_client,
+    StreamRoomMessagesContext,
 };
+
+pub mod read;

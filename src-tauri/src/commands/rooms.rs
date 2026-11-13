@@ -10,7 +10,8 @@ use storage::AppDb;
 use types::rooms::{
     MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse, MatrixGetChatsResponse,
     MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixJoinRoomRequest,
-    MatrixJoinRoomResponse, MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
+    MatrixJoinRoomResponse, MatrixSearchPublicRoomsRequest, MatrixSearchPublicRoomsResponse,
+    MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse,
 };
 use types::{Paths, RoomUpdateTriggerState};
@@ -68,4 +69,14 @@ pub async fn matrix_join_room(
     auth_state: State<'_, Arc<AuthState>>,
 ) -> Result<MatrixJoinRoomResponse, String> {
     rooms::commands::join_room(request, &paths, &app_db, &auth_state).await
+}
+
+#[tauri::command]
+pub async fn matrix_search_public_rooms(
+    request: MatrixSearchPublicRoomsRequest,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+    auth_state: State<'_, Arc<AuthState>>,
+) -> Result<MatrixSearchPublicRoomsResponse, String> {
+    rooms::commands::search_public_rooms(request, &paths, &app_db, &auth_state).await
 }

@@ -1,3 +1,4 @@
+import { normalizeImageUrl } from "../chats/media";
 import { invokeMatrixCommand } from "../command-client";
 import type {
 	MatrixAddKeywordRequest,
@@ -6,11 +7,13 @@ import type {
 	MatrixAddRoomKeywordResponse,
 	MatrixChangePasswordRequest,
 	MatrixChangePasswordResponse,
+	MatrixDesktopTheme,
 	MatrixGetRoomKeywordsRequest,
 	MatrixGetRoomSettingsRequest,
 	MatrixKeywordsResponse,
 	MatrixLeaveRoomRequest,
 	MatrixLeaveRoomResponse,
+	MatrixLoadDesktopThemeRequest,
 	MatrixNotificationDefaultsResponse,
 	MatrixProfileResponse,
 	MatrixRemoveAvatarRequest,
@@ -38,7 +41,8 @@ import type {
 } from "./types";
 
 export async function matrixGetProfile(): Promise<MatrixProfileResponse> {
-	return invokeMatrixCommand<MatrixProfileResponse>("matrix_get_profile");
+	const profile = await invokeMatrixCommand<MatrixProfileResponse>("matrix_get_profile");
+	return { ...profile, avatarUrl: normalizeImageUrl(profile.avatarUrl) };
 }
 
 export async function matrixSetDisplayName(
@@ -174,6 +178,20 @@ export async function matrixSetNotificationDefault(
 	input: MatrixSetNotificationDefaultRequest,
 ): Promise<MatrixSetNotificationDefaultResponse> {
 	return invokeMatrixCommand<MatrixSetNotificationDefaultResponse>("matrix_set_notification_default", {
+		request: input,
+	});
+}
+
+/**
+ * Load a Telegram Desktop theme (`.tdesktop-theme`) from disk.
+ *
+ * The file is a ZIP archive; the backend returns its colour palette and the
+ * path of the extracted wallpaper.
+ */
+export async function matrixLoadDesktopTheme(
+	input: MatrixLoadDesktopThemeRequest,
+): Promise<MatrixDesktopTheme> {
+	return invokeMatrixCommand<MatrixDesktopTheme>("matrix_load_desktop_theme", {
 		request: input,
 	});
 }

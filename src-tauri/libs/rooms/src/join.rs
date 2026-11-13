@@ -155,7 +155,7 @@ fn normalize_target_for_scheme(parsed: &Url, target: String) -> String {
         }
     }
 
-    if parsed.scheme() == "singularity" && target.contains(':') {
+    if parsed.scheme() == "matrix" && target.contains(':') {
         return format!("#{target}");
     }
 
@@ -196,9 +196,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_singularity_join_link_and_adds_alias_prefix() {
+    fn parses_matrix_join_link_and_adds_alias_prefix() {
         let (target, via) = parse_join_link_input(
-            "singularity://join/#example:matrix.org?via=matrix.org&via=matrix.org",
+            "matrix://join/#example:matrix.org?via=matrix.org&via=matrix.org",
         );
 
         assert_eq!(target, "#example:matrix.org");

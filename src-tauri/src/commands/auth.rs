@@ -20,8 +20,9 @@ pub async fn matrix_start_oauth(
     request: MatrixStartOAuthRequest,
     auth_state: State<'_, Arc<AuthState>>,
     paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
 ) -> Result<MatrixStartOAuthResponse, String> {
-    auth::start_oauth(&paths, auth_state.as_ref(), &request).await
+    auth::start_oauth(&paths, &app_db, auth_state.as_ref(), &request).await
 }
 
 #[tauri::command]
@@ -77,8 +78,15 @@ pub async fn matrix_logout(
     auth_state: State<'_, Arc<AuthState>>,
     app_db: State<'_, Arc<AppDb>>,
     paths: State<'_, Paths>,
+    room_update_trigger_state: State<'_, types::RoomUpdateTriggerState>,
 ) -> Result<MatrixLogoutResponse, String> {
-    auth::logout(&paths, &app_db, auth_state.as_ref()).await
+    auth::logout(
+        &paths,
+        &app_db,
+        auth_state.as_ref(),
+        &room_update_trigger_state,
+    )
+    .await
 }
 
 #[tauri::command]

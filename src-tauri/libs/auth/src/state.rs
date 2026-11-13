@@ -1,6 +1,6 @@
 use matrix_sdk::store::RoomLoadSettings;
 use matrix_sdk::Client;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 use types::Paths;
@@ -42,6 +42,8 @@ pub struct AuthState {
     inner: Mutex<AuthRuntimeState>,
     on_client_ready: Mutex<Option<ClientReadyHook>>,
     restore_in_progress: AtomicBool,
+    generation: AtomicU64,
+    signing_out: AtomicBool,
 }
 
 #[derive(Default)]
@@ -62,7 +64,36 @@ pub struct MatrixSession {
     pub device_id: String,
 }
 
+pub struct SessionTransitionGuard<'a>(&'a AtomicBool);
+impl Drop for SessionTransitionGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 impl AuthState {
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    pub fn cancellation_receiver(&self) -> Option<ClientCancelled> {
+        self.inner
+            .lock()
+            .ok()?
+            .client_cancelled
+            .as_ref()
+            .map(|sender| sender.subscribe())
+    }
+
+    pub fn begin_logout(&self) -> Result<SessionTransitionGuard<'_>, String> {
+        self.signing_out
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| String::from("Sign-out is already in progress"))?;
+        let guard = SessionTransitionGuard(&self.signing_out);
+        self.clear_runtime_session()?;
+        Ok(guard)
+    }
+
     fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, AuthRuntimeState>, String> {
         self.inner
             .lock()
@@ -96,6 +127,12 @@ impl AuthState {
             Ok(state) => state,
             Err(_) => return receiver_never_fires(),
         };
+        // A logout can land between installing the client and starting hooks.
+        // Never start fresh watchers after its cancellation has already fired.
+        if self.signing_out.load(Ordering::SeqCst) || state.client.is_none() {
+            let _ = sender.send(true);
+            return receiver;
+        }
         state.client_cancelled = Some(sender);
         drop(state);
 
@@ -115,7 +152,7 @@ impl AuthState {
         receiver
     }
 
-    /// Record whether the `singularity://` deep-link scheme is registered with
+    /// Record whether the `matrix://` deep-link scheme is registered with
     /// the OS. The binder sets this from the `register_all()` result during
     /// setup; when registration fails the OAuth flow falls back to manual
     /// callback paste because the browser redirect can't route back to the app.
@@ -127,7 +164,7 @@ impl AuthState {
         state.deep_link_registered = registered;
     }
 
-    /// Whether the `singularity://` deep-link scheme is registered. Defaults to
+    /// Whether the `matrix://` deep-link scheme is registered. Defaults to
     /// `true` (assume registered) if the state lock is unavailable.
     pub fn deep_link_registered(&self) -> bool {
         match self.lock_inner() {
@@ -151,6 +188,7 @@ impl AuthState {
     pub fn clear_runtime_session(&self) -> Result<(), String> {
         let mut state = self.lock_inner()?;
 
+        self.generation.fetch_add(1, Ordering::SeqCst);
         state.pending_client = None;
         state.session = None;
         state.client = None;
@@ -180,6 +218,10 @@ impl AuthState {
     /// Record a freshly authenticated client + session.
     pub fn set_authenticated(&self, client: Client, session: MatrixSession) -> Result<(), String> {
         let mut state = self.lock_inner()?;
+        if self.signing_out.load(Ordering::SeqCst) {
+            return Err(String::from("Sign-out is still in progress"));
+        }
+        self.generation.fetch_add(1, Ordering::SeqCst);
         state.client = Some(client);
         state.session = Some(session);
         Ok(())
@@ -190,6 +232,9 @@ impl AuthState {
         paths: &Paths,
         app_db: &std::sync::Arc<storage::AppDb>,
     ) -> Result<(), String> {
+        if self.signing_out.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         {
             if self.lock_inner()?.client.is_some() {
                 return Ok(());
@@ -205,6 +250,9 @@ impl AuthState {
         // its own watcher task. One caller builds; the rest wait and observe
         // its result.
         loop {
+            if self.signing_out.load(Ordering::SeqCst) {
+                return Ok(());
+            }
             if self.lock_inner()?.client.is_some() {
                 return Ok(());
             }
@@ -224,6 +272,7 @@ impl AuthState {
         }
         let _guard = RestoreGuard(&self.restore_in_progress);
 
+        let restore_generation = self.generation();
         let persisted = persistence::load_persisted_session(app_db).await?;
         let Some(persisted) = persisted else {
             return Ok(());
@@ -251,6 +300,10 @@ impl AuthState {
         {
             let mut state = self.lock_inner()?;
 
+            if self.signing_out.load(Ordering::SeqCst) || self.generation() != restore_generation {
+                return Ok(());
+            }
+            self.generation.fetch_add(1, Ordering::SeqCst);
             state.client = Some(client.clone());
             state.session = Some(MatrixSession {
                 homeserver_url: persisted.homeserver_url,
@@ -291,4 +344,33 @@ pub async fn wait_for_e2ee_initialization(client: &Client) {
         .encryption()
         .wait_for_e2ee_initialization_tasks()
         .await;
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    #[test]
+    fn logout_notifies_existing_client_watchers() {
+        let state = AuthState::default();
+        let (sender, _) = watch::channel(false);
+        state.inner.lock().unwrap().client_cancelled = Some(sender);
+        let receiver = state.cancellation_receiver().unwrap();
+        let _guard = state.begin_logout().unwrap();
+        assert!(*receiver.borrow());
+        assert!(state.cancellation_receiver().is_none());
+        assert!(state.client().is_err());
+    }
+
+    #[test]
+    fn logout_changes_generation_and_releases_transition_guard() {
+        let state = AuthState::default();
+        let before = state.generation();
+        let guard = state.begin_logout().unwrap();
+        assert!(state.generation() > before);
+        assert!(state.signing_out.load(Ordering::SeqCst));
+        assert!(state.begin_logout().is_err());
+        drop(guard);
+        assert!(!state.signing_out.load(Ordering::SeqCst));
+        assert!(state.begin_logout().is_ok());
+    }
 }

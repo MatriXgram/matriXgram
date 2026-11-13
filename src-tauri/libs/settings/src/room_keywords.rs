@@ -2,7 +2,7 @@
 //! rules that match both the room and a `content.body` pattern. The
 //! matrix-sdk keyword helpers are global-only, so the rules are managed
 //! through the SDK's custom conditional-rule API; rule IDs are
-//! `singularity.room_keyword.<room_id>.<hex(keyword)>` so they can be
+//! `matrixgram.room_keyword.<room_id>.<hex(keyword)>` so they can be
 //! recognised and removed individually.
 
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use storage::AppDb;
 use types::settings::{
     MatrixAddRoomKeywordRequest, MatrixAddRoomKeywordResponse, MatrixGetRoomKeywordsRequest,
     MatrixRemoveRoomKeywordRequest, MatrixRemoveRoomKeywordResponse, MatrixRoomKeywordsResponse,
-    ROOM_KEYWORD_RULE_PREFIX,
+    LEGACY_ROOM_KEYWORD_RULE_PREFIX, ROOM_KEYWORD_RULE_PREFIX,
 };
 use types::Paths;
 
@@ -53,7 +53,8 @@ fn hex_encode(value: &str) -> String {
 
 fn keyword_from_rule_id(room_id: &RoomId, rule_id: &str) -> Option<String> {
     let encoded = rule_id
-        .strip_prefix(ROOM_KEYWORD_RULE_PREFIX)?
+        .strip_prefix(ROOM_KEYWORD_RULE_PREFIX)
+        .or_else(|| rule_id.strip_prefix(LEGACY_ROOM_KEYWORD_RULE_PREFIX))?
         .strip_prefix(room_id.as_str())?
         .strip_prefix('.')?;
 
@@ -71,11 +72,12 @@ fn keyword_from_rule_id(room_id: &RoomId, rule_id: &str) -> Option<String> {
 }
 
 /// Keyword rules are matched under both `Override` (this module) and, for
-/// defence in depth, `Underride` — a ruleset may carry duplicates if the
+/// defence in depth, `Underride` â€” a ruleset may carry duplicates if the
 /// rule-ID scheme ever changes.
 fn room_keyword_rule_ids(ruleset: &Ruleset, room_id: &RoomId) -> Vec<(RuleKind, String)> {
     let matches = |rule_id: &str| {
-        rule_id.starts_with(ROOM_KEYWORD_RULE_PREFIX)
+        (rule_id.starts_with(ROOM_KEYWORD_RULE_PREFIX)
+            || rule_id.starts_with(LEGACY_ROOM_KEYWORD_RULE_PREFIX))
             && keyword_from_rule_id(room_id, rule_id).is_some()
     };
 

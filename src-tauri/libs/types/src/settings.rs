@@ -68,6 +68,9 @@ pub struct MatrixGetRoomSettingsRequest {
 pub struct MatrixRoomSettingsResponse {
     pub room_id: String,
     pub kind: crate::rooms::MatrixRoomKind,
+    pub topic: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub joined_members: u64,
     /// The effective notification mode: the user-defined one when set, the
     /// room-type default otherwise. `None` when the room is not joined.
     pub notification_mode: Option<MatrixRoomNotificationMode>,
@@ -203,9 +206,12 @@ pub struct MatrixRemoveKeywordResponse {
 }
 
 /// Per-room keyword rules live as custom override push rules with the
-/// `singularity.room_keyword.` rule-ID prefix; the keyword itself is
+/// `matrixgram.room_keyword.` rule-ID prefix; the keyword itself is
 /// hex-encoded in the rule ID so any string is round-trippable.
-pub const ROOM_KEYWORD_RULE_PREFIX: &str = "singularity.room_keyword.";
+pub const ROOM_KEYWORD_RULE_PREFIX: &str = "matrixgram.room_keyword.";
+/// Existing homeservers may still contain custom rules created by the old
+/// application prefix. Keep recognizing them so users can manage those rules.
+pub const LEGACY_ROOM_KEYWORD_RULE_PREFIX: &str = "matrix-telegram.room_keyword.";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

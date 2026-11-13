@@ -44,11 +44,6 @@ pub async fn sync_once_serialized(client: &Client, settings: SyncSettings) -> Re
         .map_err(|error| format!("Failed to sync Matrix client: {error}"))
 }
 
-/// Run a single serialized sync with default settings.
-pub async fn sync_once_default(client: &Client) -> Result<(), String> {
-    sync_once_serialized(client, SyncSettings::default()).await
-}
-
 /// Run a sync that must not outlive a user-visible action.
 ///
 /// `sync_once_default` inherits the long-poll timeout, so a caller that only

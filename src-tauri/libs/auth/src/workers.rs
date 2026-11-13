@@ -37,7 +37,9 @@ pub async fn handle_unknown_token_error(
     auth_state.clear_runtime_session()?;
     clear_persisted_session(app_db).await?;
     clear_app_cache(app_db).await?;
-    clear_matrix_sdk_store(paths)?;
+    if let Err(error) = clear_matrix_sdk_store(paths) {
+        log::warn!("Deferred expired-session store cleanup until next sign-in: {error}");
+    }
     Ok(false)
 }
 

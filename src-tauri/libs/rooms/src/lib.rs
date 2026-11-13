@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Rooms domain: room summaries, navigation, and the background room-update
 //! worker that emits room events to the frontend.
 //!
@@ -9,10 +10,12 @@
 pub mod avatars;
 pub mod commands;
 pub mod direct;
+pub mod directory;
 pub mod image;
 pub mod join;
 pub mod navigation;
 pub mod persistence;
+mod sync;
 pub mod workers;
 
 pub use avatars::watch_avatar_changes;

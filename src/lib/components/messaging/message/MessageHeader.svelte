@@ -1,62 +1,21 @@
 <script lang="ts">
-  import MessageAvatar from "./MessageAvatar.svelte";
-  import { replyTextPreview as deriveReplyTextPreview, toTime } from "../shared";
-  import type { JumpToMessageHandler, TimelineMessage } from "../shared";
+  import type { TimelineMessage } from "../shared";
 
   interface Props {
     message: TimelineMessage;
-    roomId: string;
-    repliedMessage?: TimelineMessage;
-    onJumpToMessage?: JumpToMessageHandler;
+    /// Whether the sender name is shown. Telegram hides it for direct chats
+    /// and for grouped messages of the same sender.
+    show: boolean;
+    onOpenProfile?: () => void;
   }
 
-  let {
-    message,
-    roomId,
-    repliedMessage,
-    onJumpToMessage,
-  }: Props = $props();
+  let { message, show, onOpenProfile }: Props = $props();
 
-  const replySenderLabel = $derived(repliedMessage?.sender ?? "message");
-  const replyTextPreview = $derived(deriveReplyTextPreview(repliedMessage));
-
-  function jumpToReply() {
-    if (!message.inReplyToEventId) {
-      return;
-    }
-
-    onJumpToMessage?.(message.inReplyToEventId);
-  }
+  const senderLabel = $derived(message.senderDisplayName?.trim() || message.sender.replace(/^@/, "").split(":")[0]);
 </script>
 
-<div class="mb-1 flex items-center justify-between gap-2 text-xs text-surface-700-300">
-  <div class="flex min-w-0 items-center gap-2">
-    <MessageAvatar {roomId} sender={message.sender} />
-    <span class="truncate">{message.sender}</span>
-  </div>
-  <span>{toTime(message.timestamp)}</span>
-</div>
-
-{#if message.inReplyToEventId}
-  <button
-    type="button"
-    class="mb-2 w-full rounded border border-surface-300-700 bg-surface-100-900 p-2 text-left text-xs text-surface-700-300 transition hover:bg-surface-200-800"
-    onclick={jumpToReply}
-  >
-    <p class="font-medium text-surface-600-400">In reply to {replySenderLabel}</p>
-
-    {#if repliedMessage?.messageType === "m.image" && repliedMessage.imageUrl}
-      <div class="mt-1 flex items-center gap-2">
-        <img
-          src={repliedMessage.imageUrl}
-          alt={repliedMessage.body || "Reply image"}
-          loading="lazy"
-          class="h-10 w-10 rounded border border-surface-300-700 object-cover bg-surface-100-900"
-        />
-        <span class="truncate">Image</span>
-      </div>
-    {:else if replyTextPreview}
-      <p class="mt-1 truncate">{replyTextPreview}</p>
-    {/if}
+{#if show}
+  <button type="button" onclick={onOpenProfile} title={message.sender} class="cursor-pointer text-left hover:underline focus-visible:underline mb-0.5 block max-w-full truncate text-[14px] font-semibold leading-tight text-accent">
+    {senderLabel}
   </button>
 {/if}

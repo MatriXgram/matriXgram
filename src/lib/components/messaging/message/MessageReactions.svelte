@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+  import { loadUserProfile } from "$lib/chats/user-profile";
+  import ReactionParticipant from "./ReactionParticipant.svelte";
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
 
-  import EmojiPickerPopover from "../composer-emoji/EmojiPickerPopover.svelte";
   import {
     buildEmojiByShortcodeToken,
     buildPickerEmojiBySourceUrl,
@@ -12,6 +14,7 @@
 
   interface Props {
     message: TimelineMessage;
+    roomId: string;
     currentUserId?: string | null;
     pickerCustomEmoji?: PickerCustomEmoji[];
     onToggleReaction?: ToggleReactionHandler;
@@ -19,10 +22,53 @@
 
   let {
     message,
+    roomId,
     currentUserId = null,
     pickerCustomEmoji = [],
     onToggleReaction,
   }: Props = $props();
+
+  let hoveredKey = $state<string | null>(null);
+  let origin = $state<{ left: number; top: number; bottom: number } | null>(null);
+  let popup = $state<HTMLDivElement | null>(null);
+  let position = $state({ x: 8, y: 8 });
+  let popupMaxHeight = $state(320);
+  let closeTimer: ReturnType<typeof setTimeout>;
+  const hoveredReaction = $derived(message.reactions.find((reaction) => reaction.key === hoveredKey));
+  function keepOpen() { clearTimeout(closeTimer); }
+  function scheduleClose() { clearTimeout(closeTimer); closeTimer = setTimeout(() => { hoveredKey = null; }, 180); }
+  function showPeople(key: string, element: EventTarget | null) {
+    if (!(element instanceof HTMLElement)) return;
+    keepOpen();
+    const rect = element.getBoundingClientRect();
+    origin = { left: rect.left, top: rect.top, bottom: rect.bottom };
+    hoveredKey = key;
+    for (const userId of message.reactions.find(reaction => reaction.key === key)?.senders ?? []) {
+      void loadUserProfile(roomId, userId).catch(() => {});
+    }
+  }
+  onDestroy(() => clearTimeout(closeTimer));
+  $effect(() => {
+    const element = popup, anchor = origin;
+    if (!element || !anchor || !hoveredReaction) return;
+    const reposition = () => {
+      const rect = element.getBoundingClientRect();
+      const availableBelow = Math.max(0, window.innerHeight - anchor.bottom - 10);
+      const availableAbove = Math.max(0, anchor.top - 10);
+      const openBelow = availableBelow >= rect.height || availableBelow >= availableAbove;
+      popupMaxHeight = openBelow ? availableBelow : availableAbove;
+      position = {
+        x: Math.max(8, Math.min(anchor.left, window.innerWidth - rect.width - 8)),
+        y: openBelow
+          ? anchor.bottom + 2
+          : Math.max(8, anchor.top - Math.min(rect.height, popupMaxHeight) - 2),
+      };
+    };
+    reposition();
+    const observer = new ResizeObserver(reposition);
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
 
   const pickerEmojiBySourceUrl = $derived.by(() => buildPickerEmojiBySourceUrl(pickerCustomEmoji));
   const emojiByShortcodeToken = $derived.by(() => buildEmojiByShortcodeToken(message, pickerCustomEmoji));
@@ -41,43 +87,61 @@
 </script>
 
 {#if message.eventId}
-  <div class="mt-2 flex flex-wrap items-center gap-1">
+  <div class="inline-flex w-fit max-w-[55%] min-w-0 shrink-0 flex-wrap items-center gap-0.5">
     {#each message.reactions as reaction (`${reaction.key}-${reaction.senders.join("|")}`)}
       {@const reactionEmojiUrl = customEmojiUrlForToken(reaction.key, emojiByShortcodeToken, pickerEmojiBySourceUrl)}
       <button
         type="button"
-        class="rounded-full px-2 py-0.5 text-xs border"
-        title={reactionDisplayName(reaction.key, message, pickerCustomEmoji)}
-        class:bg-primary-200-800={ownReaction(reaction)}
-        class:text-primary-900-100={ownReaction(reaction)}
-        class:bg-surface-200-800={!ownReaction(reaction)}
-        class:text-surface-900-100={!ownReaction(reaction)}
-        class:border-primary-500={ownReaction(reaction)}
-        class:border-surface-400-600={!ownReaction(reaction)}
+        class="inline-flex w-fit shrink-0 cursor-pointer items-center gap-0.5 rounded-full border px-1.5 py-px text-[11px] leading-none transition hover:ring-1 hover:ring-accent focus-visible:ring-1 focus-visible:ring-accent"
+        aria-label={`${reactionDisplayName(reaction.key, message, pickerCustomEmoji)}: ${reaction.count} reactions`}
+        onpointerenter={(event) => showPeople(reaction.key, event.currentTarget)}
+        onpointerleave={scheduleClose}
+        onfocus={(event) => showPeople(reaction.key, event.currentTarget)}
+        onblur={scheduleClose}
+        class:bg-accent-soft={ownReaction(reaction)}
+        class:text-accent={ownReaction(reaction)}
+        class:border-accent={ownReaction(reaction)}
+        class:bg-hover={!ownReaction(reaction)}
+        class:border-hairline-strong={!ownReaction(reaction)}
         onclick={() => handleReactionClick(reaction.key)}
       >
         {#if reactionEmojiUrl}
           <img
             src={reactionEmojiUrl}
             alt={reaction.key}
-            title={reactionDisplayName(reaction.key, message, pickerCustomEmoji)}
-            class="inline-block h-5 w-5 align-text-bottom"
+            class="inline-block size-3.5 align-text-bottom"
             loading="lazy"
           />
         {:else}
-          <span class="inline-block text-2xl leading-none align-text-bottom" title={reactionDisplayName(reaction.key, message, pickerCustomEmoji)}>{reaction.key}</span>
+          <span class="inline-block text-[13px] leading-none align-text-bottom">{reaction.key}</span>
         {/if}
-        {reaction.count}
+        <span class="tabular-nums">{reaction.count}</span>
       </button>
     {/each}
+  </div>
+{/if}
 
-    <EmojiPickerPopover
-      buttonText="+"
-      buttonClass="rounded-full px-2 py-0.5 text-xs border border-surface-400-600 bg-surface-100-900"
-      popoverClass="absolute bottom-full left-0 mb-1 z-10 card p-2 preset-outlined-surface-300-700 bg-surface-50-950 w-[22rem] max-w-[80vw]"
-      pickerStyle="width: 100%; height: 22rem; --emoji-size: 2rem; --category-emoji-size: 1.15rem;"
-      {pickerCustomEmoji}
-      onSelect={handleReactionClick}
-    />
+<svelte:window onresize={() => (hoveredKey = null)} onkeydown={(event) => {
+  if (event.key === "Escape") hoveredKey = null;
+}} onpointerdown={(event) => {
+  if (popup && event.target instanceof Node && !popup.contains(event.target)) hoveredKey = null;
+}} />
+{#if hoveredReaction && origin}
+  <div bind:this={popup} role="dialog" tabindex="-1" aria-label="People who reacted"
+    onpointerenter={keepOpen} onpointerleave={scheduleClose}
+    onfocusin={keepOpen} onfocusout={scheduleClose}
+    class="fixed z-[65] w-72 max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-hairline bg-panel text-primary shadow-xl"
+    style={`left: ${position.x}px; top: ${position.y}px; max-height: ${popupMaxHeight}px;`}>
+    <div class="flex items-center justify-between border-b border-hairline px-3 py-2 text-xs font-semibold">
+      <span class="truncate">{reactionDisplayName(hoveredReaction.key, message, pickerCustomEmoji)} · {hoveredReaction.count}</span>
+      <button type="button" class="ml-2 cursor-pointer rounded px-1 hover:bg-hover" aria-label="Close reaction list" onclick={() => (hoveredKey = null)}>×</button>
+    </div>
+    <ul class="max-h-[min(260px,calc(100dvh-64px))] space-y-1 overflow-y-auto p-1">
+      {#each Array.from(new Set(hoveredReaction.senders)) as userId (userId)}
+        <li class="border-b border-hairline/60 last:border-b-0">
+          <ReactionParticipant {roomId} {userId} timestamp={hoveredReaction.participants?.find(person => person.userId === userId)?.timestamp ?? null} />
+        </li>
+      {/each}
+    </ul>
   </div>
 {/if}

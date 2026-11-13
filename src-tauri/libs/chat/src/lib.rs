@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Chat domain (formerly the `messages` module): message send/receive, media
 //! handling, reactions, and emoji packs. Tauri-free: command adapters live in
 //! the binder, and domain functions take `&Paths` / `&Arc<AppDb>` /
@@ -8,6 +9,7 @@ pub mod emoji;
 pub mod helpers;
 pub mod media;
 pub mod persistence;
+pub mod profiles;
 pub mod reactions;
 pub mod receive;
 pub mod send;

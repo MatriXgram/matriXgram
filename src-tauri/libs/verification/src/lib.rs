@@ -12,5 +12,5 @@ pub mod commands;
 pub use commands::{
     accept_sas_verification, accept_verification_request, confirm_sas_verification,
     get_user_devices, get_verification_flow, own_verification_status, request_device_verification,
-    start_sas_verification, start_verification_state_watcher,
+    start_sas_verification, start_verification_request_watcher, start_verification_state_watcher,
 };

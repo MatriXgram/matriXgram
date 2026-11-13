@@ -5,12 +5,13 @@ use storage::AppDb;
 use types::rooms::{
     MatrixGetChatNavigationRequest, MatrixGetChatNavigationResponse, MatrixGetChatsResponse,
     MatrixGetRoomImageRequest, MatrixGetRoomImageResponse, MatrixJoinRoomRequest,
-    MatrixJoinRoomResponse, MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
+    MatrixJoinRoomResponse, MatrixSearchPublicRoomsRequest, MatrixSearchPublicRoomsResponse,
+    MatrixSetRootSpaceOrderRequest, MatrixSetRootSpaceOrderResponse,
     MatrixTriggerRoomUpdateRequest, MatrixTriggerRoomUpdateResponse,
 };
 use types::{Paths, RoomUpdateTriggerState};
 
-use crate::image::{self, has_stale_cached_chat_media};
+use crate::image;
 use crate::navigation::{build_navigation_response, orderable_root_space_ids};
 use crate::persistence::{collect_and_store_chats, load_cached_chats};
 
@@ -22,17 +23,7 @@ pub async fn get_chats(
 ) -> Result<MatrixGetChatsResponse, String> {
     let mut chats = load_cached_chats(app_db).await?;
 
-    if let Some(cached_chats) = chats.as_deref() {
-        if has_stale_cached_chat_media(&MatrixGetChatsResponse {
-            chats: cached_chats.to_vec(),
-        }) {
-            let client = auth_state.restore_client_and_get(paths, app_db).await?;
-            let local_chats = collect_and_store_chats(app_db, &client).await;
-            if !local_chats.is_empty() {
-                chats = Some(local_chats);
-            }
-        }
-    } else {
+    if chats.is_none() {
         let client = auth_state.restore_client_and_get(paths, app_db).await?;
         let local_chats = collect_and_store_chats(app_db, &client).await;
         if !local_chats.is_empty() {
@@ -124,4 +115,13 @@ pub async fn join_room(
     auth_state: &Arc<AuthState>,
 ) -> Result<MatrixJoinRoomResponse, String> {
     crate::join::join_room(request, paths, app_db, auth_state).await
+}
+
+pub async fn search_public_rooms(
+    request: MatrixSearchPublicRoomsRequest,
+    paths: &Paths,
+    app_db: &Arc<AppDb>,
+    auth_state: &Arc<AuthState>,
+) -> Result<MatrixSearchPublicRoomsResponse, String> {
+    crate::directory::search_public_rooms(request, paths, app_db, auth_state).await
 }

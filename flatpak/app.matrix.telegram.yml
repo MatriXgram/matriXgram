@@ -1,8 +1,8 @@
-app-id: eu.luxuride.singularity
+app-id: app.matrix.telegram
 runtime: org.gnome.Platform
 runtime-version: '49'
 sdk: org.gnome.Sdk
-command: singularity
+command: matrixgram
 
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
@@ -13,7 +13,7 @@ build-options:
   env:
     CARGO_HOME: /run/ccache/cargo
     CARGO_TARGET_DIR: /run/ccache/target
-    XDG_CACHE_HOME: /run/build/singularity/.cache
+    XDG_CACHE_HOME: /run/build/matrixgram/.cache
 
 finish-args:
   - --share=network
@@ -35,14 +35,14 @@ cleanup:
   - /share/man
 
 modules:
-  - name: singularity
+  - name: matrixgram
     buildsystem: simple
     build-commands:
       - npm run tauri -- build --no-bundle --config flatpak/tauri.flatpak.conf.json -- --locked --offline
-      - install -Dm755 /run/ccache/target/release/singularity /app/bin/singularity
-      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/eu.luxuride.singularity.png
-      - install -Dm644 flatpak/eu.luxuride.singularity.desktop /app/share/applications/eu.luxuride.singularity.desktop
-      - install -Dm644 flatpak/eu.luxuride.singularity.metainfo.xml /app/share/metainfo/eu.luxuride.singularity.metainfo.xml
+      - install -Dm755 /run/ccache/target/release/matrixgram /app/bin/matrixgram
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/app.matrix.telegram.png
+      - install -Dm644 flatpak/app.matrix.telegram.desktop /app/share/applications/app.matrix.telegram.desktop
+      - install -Dm644 flatpak/app.matrix.telegram.metainfo.xml /app/share/metainfo/app.matrix.telegram.metainfo.xml
     sources:
       - type: dir
         path: ..

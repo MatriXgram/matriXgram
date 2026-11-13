@@ -1,13 +1,14 @@
 <script lang="ts">
 import { matrixGetUserAvatar } from "$lib/chats/api";
-import { avatarChangeEpoch, senderAvatarCache } from "$lib/components/navigation/shared/image-cache";
+import { avatarChangeEpoch, senderAvatarCache } from "$lib/components/navigation/shared/image-cache.svelte";
 
   interface Props {
     roomId: string;
     sender: string;
+    onOpenProfile?: (avatarUrl: string | null) => void;
   }
 
-  let { roomId, sender }: Props = $props();
+  let { roomId, sender, onOpenProfile }: Props = $props();
 
   let lazyImageUrl = $state<string | null>(null);
 
@@ -37,8 +38,11 @@ import { avatarChangeEpoch, senderAvatarCache } from "$lib/components/navigation
   });
 </script>
 
-<div
-  class="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-surface-200-800 grid place-items-center text-xs font-semibold text-surface-800-200"
+<button
+  type="button"
+  onclick={() => onOpenProfile?.(lazyImageUrl)}
+  aria-label={`View profile of ${sender}`}
+  class="cursor-pointer transition hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent h-8 w-8 shrink-0 overflow-hidden rounded-full bg-surface-200-800 grid place-items-center text-xs font-semibold text-surface-800-200"
   title={sender}
 >
   {#if lazyImageUrl}
@@ -46,4 +50,4 @@ import { avatarChangeEpoch, senderAvatarCache } from "$lib/components/navigation
   {:else}
     <span>{avatarLabel}</span>
   {/if}
-</div>
+</button>

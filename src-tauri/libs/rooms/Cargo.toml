@@ -12,6 +12,7 @@ auth = { workspace = true }
 chat = { workspace = true }
 
 matrix-sdk = { workspace = true }
+futures-util = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

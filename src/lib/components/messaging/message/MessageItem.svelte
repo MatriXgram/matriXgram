@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openUserProfile } from "$lib/chats/user-profile";
   import { matrixCopyImageToClipboard } from "$lib/chats/api";
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
   import type {
@@ -8,50 +9,78 @@
     TimelineMessage,
     ToggleReactionHandler,
   } from "../shared";
+  import { toClockTime } from "../shared";
   import {
+    MessageActionMenu,
     MessageBody,
     MessageEncryptionState,
     MessageHeader,
     MessageReactions,
     MessageSendState,
+    ReactionQuickBar,
+    ReplyQuote,
   } from ".";
+  import { EmojiPickerPopover } from "../composer-emoji";
 
   interface Props {
     message: TimelineMessage;
+    imageMessages: TimelineMessage[];
     roomId: string;
     onRetry?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
+    onForward?: (message: TimelineMessage) => void;
+    onCopy?: (message: TimelineMessage) => void;
     onJumpToMessage?: JumpToMessageHandler;
     repliedMessage?: TimelineMessage;
     currentUserId?: string | null;
     pickerCustomEmoji?: PickerCustomEmoji[];
     isSending?: boolean;
+    /// The sender name is omitted when continuing a sender group.
+    grouped?: boolean;
+    /// The last message in a sender group gets the small incoming bubble tail.
+    groupEnd?: boolean;
+    /// Show the sender name at the top of the bubble (group chats).
+    showSenderName?: boolean;
   }
 
   let {
     message,
+    imageMessages,
     roomId,
     onRetry,
     onToggleReaction,
     onReplyToMessage,
+    onForward,
+    onCopy,
     onJumpToMessage,
     repliedMessage,
     currentUserId = null,
     pickerCustomEmoji = [],
     isSending = false,
+    grouped = false,
+    groupEnd = false,
+    showSenderName = false,
   }: Props = $props();
 
   let optionsButtonElement: HTMLButtonElement | null = $state(null);
-  let optionsMenuElement: HTMLDivElement | null = $state(null);
-  let isOptionsOpen = $state(false);
-  let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
-  let optionsMode = $state<"reply" | "copy-image">("reply");
 
-  const primaryActionLabel = $derived(optionsMode === "copy-image" ? "Copy Image" : "Reply");
+  /// The quick reaction bar, shown on a right click.
+  let reactionBarPosition = $state<{ x: number; y: number } | null>(null);
+  let reactionPickerOpen = $state(false);
+  let reactionPickerAnchor = $state<{ x: number; y: number } | null>(null);
 
+  /// The action list (reply, forward, copy) below the reaction bar. Its
+  /// position is the single source of truth for "the menu is open": the
+  /// outside click handler and the button toggle both go through it.
+  let actionMenuPosition = $state<{ x: number; y: number; originX?: "left" | "right"; originY?: "top" | "bottom" } | null>(null);
+
+  function showProfile(avatarUrl?: string | null) { openUserProfile({ roomId, userId: message.sender, displayName: message.senderDisplayName, avatarUrl }); }
+
+  const senderIdentity = $derived(message.sender);
+  const isOwn = $derived(Boolean(currentUserId) && message.sender === currentUserId);
   $effect(() => {
-    if (!isOptionsOpen) {
+    if (!actionMenuPosition && !reactionBarPosition) {
       return;
     }
 
@@ -61,7 +90,12 @@
         return;
       }
 
-      if (optionsButtonElement?.contains(target) || optionsMenuElement?.contains(target)) {
+      // Keep popups mounted until their click handlers have run.
+      if (
+        optionsButtonElement?.contains(target) ||
+        (target instanceof Element &&
+          target.closest("[data-action-menu], [data-reaction-bar]"))
+      ) {
         return;
       }
 
@@ -86,30 +120,89 @@
   });
 
   function closeOptionsMenu() {
-    isOptionsOpen = false;
-    contextMenuPosition = null;
-    optionsMode = "reply";
+    actionMenuPosition = null;
+    reactionBarPosition = null;
+    reactionPickerOpen = false;
   }
 
-  function toggleOptionsMenu(event: MouseEvent) {
-    event.stopPropagation();
-    optionsMode = "reply";
-    contextMenuPosition = null;
-    isOptionsOpen = !isOptionsOpen;
-  }
 
-  function openOptionsMenuFromContext(event: MouseEvent) {
+  /// A right click opens the quick reaction bar and the action list below it,
+  /// the way Telegram does.
+  function openReactionBar(event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
-    optionsMode = "reply";
-    contextMenuPosition = { x: event.clientX, y: event.clientY };
-    isOptionsOpen = true;
+
+    reactionPickerOpen = false;
+    reactionPickerAnchor = null;
+    // Keep the action list anchored to the pointer and the reaction bar close
+    // above it. Flip the list if there is not enough room above the pointer.
+    const barWidth = 250;
+    const barHeight = 44;
+    const menuWidth = 150;
+    const menuHeight = 8 + (message.imageUrl ? 4 : 3) * 27;
+    // Anchor the pointer to the menu's bottom-left edge and expand upward.
+    const menuX = event.clientX + menuWidth + 8 <= window.innerWidth
+      ? event.clientX + 2
+      : Math.max(8, event.clientX - menuWidth - 2);
+    const opensAbove = event.clientY >= menuHeight + 8;
+    const menuY = opensAbove
+      ? event.clientY - menuHeight - 2
+      : event.clientY + 2;
+    const barX = Math.max(8, Math.min(menuX + (menuWidth - barWidth) / 2, window.innerWidth - barWidth - 8));
+
+    reactionBarPosition = {
+      x: barX,
+      y: Math.max(8, menuY - barHeight - 4),
+    };
+
+    actionMenuPosition = {
+      x: menuX,
+      y: menuY,
+      originX: menuX >= event.clientX ? "left" : "right",
+      originY: opensAbove ? "bottom" : "top",
+    };
   }
 
+  /// The "..." button opens the same action list, anchored under the button.
+  function toggleActionMenu(event: MouseEvent) {
+    event.stopPropagation();
+
+    const button = optionsButtonElement;
+    const rect = button?.getBoundingClientRect();
+
+    reactionBarPosition = null;
+    reactionPickerOpen = false;
+
+    actionMenuPosition = actionMenuPosition
+      ? null
+      : {
+          x: Math.max(8, (rect?.right ?? 0) - 150),
+          y: Math.max(8, (rect?.bottom ?? 0) + 6),
+          originX: "right",
+          originY: "top",
+        };
+
+  }
+
+  function openFullReactionPicker() {
+    const position = reactionBarPosition ?? { x: 120, y: 120 };
+    actionMenuPosition = null;
+    reactionBarPosition = null;
+    reactionPickerAnchor = { x: position.x, y: position.y };
+    reactionPickerOpen = true;
+  }
+
+  function toggleReactionFromBar(_message: TimelineMessage, key: string) {
+    if (!message.eventId) {
+      return;
+    }
+
+    onToggleReaction?.(message, key);
+  }
+
+  /// A right click on the image itself opens the same bar and action list.
   function openImageOptionsMenuFromContext(event: MouseEvent) {
-    optionsMode = "copy-image";
-    contextMenuPosition = { x: event.clientX, y: event.clientY };
-    isOptionsOpen = true;
+    openReactionBar(event);
   }
 
   async function copyImageToClipboard() {
@@ -124,61 +217,132 @@
     }
   }
 
-  function handlePrimaryAction() {
-    const actionMode = optionsMode;
-    closeOptionsMenu();
-
-    if (actionMode === "copy-image") {
-      void copyImageToClipboard();
+  /// Put the plain text of a message on the clipboard.
+  async function copyText(target: TimelineMessage) {
+    if (!target.body) {
       return;
     }
 
-    onReplyToMessage?.(message);
+    try {
+      await navigator.clipboard.writeText(target.body);
+    } catch (error) {
+      console.warn("Failed to copy text", error);
+    }
   }
 </script>
 
 <li
-  class="message-card card p-3 preset-outlined-surface-300-700 bg-surface-50-950 transition-colors duration-100 hover:bg-surface-100-900 group relative"
+  class="message-row group relative flex w-full items-end gap-2 px-3 py-[1px]"
+  class:justify-end={isOwn}
   data-message-event-id={message.eventId ?? undefined}
-  oncontextmenu={openOptionsMenuFromContext}
+  oncontextmenu={openReactionBar}
 >
+
+
+  <div class="flex min-w-0 max-w-[78%] flex-col" class:items-end={isOwn}>
+    <div
+      class="bubble {isOwn ? 'bubble-out' : 'bubble-in'}"
+      class:bubble-media={message.messageType === "m.image"}
+      class:message-tail-in={groupEnd && !isOwn}
+      class:message-tail-out={groupEnd && isOwn}
+      class:message-mention={message.mentionsMe}
+    >
   <button
     type="button"
-    class="absolute right-2 top-2 z-10 rounded px-2 py-1 text-xs font-medium text-surface-700-300 transition hover:bg-surface-200-800 hover:text-surface-900-100 focus-visible:bg-surface-200-800 focus-visible:text-surface-900-100 focus-visible:opacity-100 focus-visible:outline-none opacity-0 group-hover:opacity-100"
+    class="message-options absolute top-1.5 z-10 rounded px-1.5 py-0.5 text-xs text-secondary opacity-0 transition hover:bg-hover hover:text-primary focus-visible:opacity-100 group-hover:opacity-100"
     aria-label="Open message options"
     title="Message options"
     bind:this={optionsButtonElement}
-    onclick={toggleOptionsMenu}
+    onclick={toggleActionMenu}
   >
     ...
   </button>
 
-  {#if isOptionsOpen}
-    <div
-      class="z-20 min-w-28 overflow-hidden rounded border border-surface-300-700 bg-surface-50-950 shadow"
-      class:fixed={Boolean(contextMenuPosition)}
-      class:absolute={!contextMenuPosition}
-      class:right-2={!contextMenuPosition}
-      class:top-10={!contextMenuPosition}
-      style={contextMenuPosition ? `left: ${contextMenuPosition.x}px; top: ${contextMenuPosition.y}px;` : undefined}
-      role="menu"
-      bind:this={optionsMenuElement}
-    >
-      <button
-        type="button"
-        class="block w-full px-3 py-2 text-left text-sm hover:bg-surface-200-800 disabled:cursor-not-allowed disabled:opacity-50"
-        onclick={handlePrimaryAction}
-        disabled={optionsMode === "copy-image" ? !message.imageUrl : !message.eventId}
-        role="menuitem"
-      >
-        {primaryActionLabel}
-      </button>
-    </div>
-  {/if}
+      <MessageHeader {message} onOpenProfile={() => showProfile()} show={showSenderName && !isOwn && !grouped} />
 
-  <MessageHeader {message} {roomId} {repliedMessage} {onJumpToMessage} />
-  <MessageBody {message} {roomId} onImageContextMenu={openImageOptionsMenuFromContext} />
-  <MessageReactions {message} {currentUserId} {pickerCustomEmoji} onToggleReaction={onToggleReaction} />
-  <MessageSendState {message} {isSending} onRetry={onRetry} />
-  <MessageEncryptionState {message} />
+      <ReplyQuote {message} {roomId} {repliedMessage} {onJumpToMessage} />
+
+      <MessageBody
+        {message}
+        {imageMessages}
+        {roomId}
+        hasSenderHeader={showSenderName && !isOwn && !grouped}
+        onImageContextMenu={openImageOptionsMenuFromContext}
+      />
+
+      {#if message.isDeleted}
+        <p class="text-[13px] italic opacity-70">Message deleted</p>
+      {/if}
+
+      <div
+        class="message-meta mt-1 flex min-w-0 flex-nowrap items-center justify-between gap-2 pb-1 text-[10px] leading-tight"
+      >
+        <MessageReactions {roomId} {message} {currentUserId} {pickerCustomEmoji} onToggleReaction={onToggleReaction} />
+        <div class="flex min-w-0 shrink flex-nowrap items-center justify-end gap-1 opacity-70" class:opacity-100={isOwn}>
+          {#if message.editedAt}
+            <span class="italic">edited</span>
+          {/if}
+          {#if message.threadReplyCount > 0}
+            <span class="font-semibold">{message.threadReplyCount} replies</span>
+          {/if}
+          <span class="min-w-0 max-w-[24rem] flex-1 truncate" title={message.sender}>{senderIdentity}</span>
+          <span class="shrink-0 whitespace-nowrap">{toClockTime(message.timestamp)}</span>
+          {#if message.sendState === "sending"}
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="size-3"
+              aria-label="Sending"
+            >
+              <title>Sending</title>
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 16 14" />
+            </svg>
+          {:else if isOwn}
+            <span aria-label={message.isRead ? "Read" : "Sent"} class="inline-flex shrink-0 text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
+                <path d="m4 12 4 4L19 5"/>
+                {#if message.isRead}<path d="m12 16 9-9"/>{/if}
+              </svg>
+            </span>
+          {/if}
+        </div>
+      </div>
+    </div>
+
+    <MessageSendState {message} {isSending} onRetry={onRetry} />
+    <MessageEncryptionState {message} />
+  </div>
+
+
+
+  <ReactionQuickBar
+    {message}
+    position={reactionBarPosition}
+    onToggleReaction={toggleReactionFromBar}
+    onExpand={openFullReactionPicker}
+    onClose={() => (reactionBarPosition = null)}
+  />
+
+  <MessageActionMenu
+    {message}
+    position={actionMenuPosition}
+    onReply={onReplyToMessage}
+    onForward={onForward}
+    onCopy={(target) => (onCopy ? onCopy(target) : copyText(target))}
+    onCopyImage={message.imageUrl ? copyImageToClipboard : undefined}
+    onClose={() => (actionMenuPosition = null)}
+  />
+
+  <EmojiPickerPopover
+    bind:open={reactionPickerOpen}
+    hideButton
+    anchor={reactionPickerAnchor}
+    {pickerCustomEmoji}
+    onSelect={(token) => toggleReactionFromBar(message, token)}
+  />
 </li>

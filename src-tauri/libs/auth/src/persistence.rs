@@ -90,3 +90,56 @@ pub fn clear_matrix_sdk_store(paths: &Paths) -> Result<(), String> {
 
     Ok(())
 }
+
+/// Windows may retain SQLite handles briefly after cancelled tasks drop clients.
+pub async fn clear_matrix_sdk_store_with_retry(paths: &Paths) -> Result<(), String> {
+    for attempt in 0..20 {
+        match clear_matrix_sdk_store(paths) {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt == 19 => return Err(error),
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+        }
+    }
+    unreachable!()
+}
+
+pub async fn prepare_login_store(paths: &Paths, app_db: &Arc<AppDb>) -> Result<PathBuf, String> {
+    if load_persisted_session(app_db).await?.is_none() {
+        clear_matrix_sdk_store_with_retry(paths).await?;
+    }
+    prepare_matrix_sdk_store(paths)
+}
+
+#[cfg(all(test, windows))]
+mod cleanup_tests {
+    use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
+    #[tokio::test]
+    async fn cleanup_waits_for_windows_file_handles_to_close() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "matrix-logout-cleanup-{}-{unique}",
+            std::process::id()
+        ));
+        let paths = Paths::new(root.clone(), root.join("cache"));
+        let store = prepare_matrix_sdk_store(&paths).unwrap();
+        let file = store.join("database.sqlite");
+        fs::write(&file, b"test").unwrap();
+        let handle = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&file)
+            .unwrap();
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            drop(handle);
+        });
+        clear_matrix_sdk_store_with_retry(&paths).await.unwrap();
+        release.await.unwrap();
+        assert!(!store.exists());
+        fs::remove_dir(root).unwrap();
+    }
+}

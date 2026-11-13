@@ -16,9 +16,14 @@ tokio = { version = "1", features = ["sync", "time", "process", "io-util", "rt",
 futures-util = "0.3"
 
 # Matrix protocol
-matrix-sdk = { version = "0.18.0", default-features = false, features = ["sso-login", "e2e-encryption", "bundled-sqlite"] }
+# 0.19.x adds the gallery message type (MSC4274), which lets a single event
+# carry several media items — the Matrix equivalent of a Telegram album.
+# `rustls-aws-lc-rs` is required: matrix-sdk 0.19 pulls reqwest with
+# `rustls-no-provider`, so without it every TLS client panics at runtime with
+# "No rustls crypto provider is configured".
+matrix-sdk = { version = "0.19.1", default-features = false, features = ["sso-login", "e2e-encryption", "bundled-sqlite", "unstable-msc4274", "markdown", "rustls-aws-lc-rs"] }
 url = "2"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rmp-serde = "1"
 
 # Media / images
@@ -32,9 +37,13 @@ log = "0.4"
 rand = "0.8"
 base64 = "0.22"
 markup = "0.15"
+# Telegram Desktop theme files are ZIP archives.
+zip = { version = "9.5", default-features = false, features = ["deflate"] }
 # Sanitiser for remote `formatted_body`, which the frontend renders with {@html}
 ammonia = "4"
-rusqlite = "0.37.0"
+# Pinned to the version matrix-sdk-sqlite 0.19 uses: two `libsqlite3-sys`
+# versions in the graph would link the same native library twice.
+rusqlite = "0.40.2"
 open = "5"
 
 # Internal crates
@@ -50,9 +59,9 @@ rooms = { path = "libs/rooms" }
 settings = { path = "libs/settings" }
 
 [package]
-name = "singularity"
+name = "matrixgram"
 version = "0.1.0"
-description = "A Tauri App"
+description = "A Telegram-like desktop client for the Matrix protocol"
 authors = ["you"]
 edition = "2021"
 
@@ -62,14 +71,18 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "singularity_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+name = "matrixgram_lib"
+# Only the rlib is built for the desktop app. `staticlib` and `cdylib` are
+# needed by `tauri android build` / `tauri ios build`, and building them here
+# makes rustc link the whole dependency graph three times, which is what makes
+# the build run out of memory on a 16 GB machine.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "~2.11.5", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
@@ -102,4 +115,16 @@ rusqlite = { workspace = true, features = ["bundled-sqlcipher"] }
 # Already in the tree through wry; enables WebViewExt::set_cors_allowlist so
 # the dev build (Vite on http) can display asset:// media under WebKitGTK.
 webkit2gtk = { version = "2.0", features = ["v2_34"] }
+
+# The desktop build links the whole dependency graph into one binary, and
+# `matrix-sdk` alone is a 600 MB rlib. With full debug info for every
+# dependency, rustc runs out of memory while linking on a 16 GB machine.
+#
+# The app keeps line tables, so backtraces still show file and line, and the
+# dependencies keep none at all.
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 0
 

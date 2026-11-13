@@ -1,4 +1,4 @@
-# Copilot Instructions for Singularity (Matrix Client)
+# Copilot Instructions for Matrix Telegram (Matrix client)
 
 This project is a desktop Matrix client built with:
 

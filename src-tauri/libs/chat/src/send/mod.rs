@@ -12,6 +12,7 @@ use matrix_sdk::ruma::events::room::message::{
     FileMessageEventContent, ImageMessageEventContent, MessageType, Relation,
     RoomMessageEventContent, VideoInfo, VideoMessageEventContent,
 };
+use matrix_sdk::ruma::events::Mentions;
 
 use protocol::{parse_event_id, parse_room_id};
 use types::chat::MatrixPickerCustomEmoji;
@@ -116,6 +117,8 @@ pub async fn send_room_message_from_client(
     body: &str,
     picker_custom_emoji: &[MatrixPickerCustomEmoji],
     in_reply_to_event_id_raw: Option<&str>,
+    formatted_body_override: Option<&str>,
+    mentioned_user_ids: &[String],
 ) -> Result<String, String> {
     let trimmed_body = body.trim();
     if trimmed_body.is_empty() {
@@ -128,14 +131,29 @@ pub async fn send_room_message_from_client(
         .get_room(&room_id)
         .ok_or_else(|| String::from("Room is not available in current session"))?;
 
-    let formatted_body =
-        formatting::build_formatted_body_from_custom_emoji(trimmed_body, picker_custom_emoji);
+    let formatted_body = match formatted_body_override {
+        // A forwarded message keeps its formatting. The HTML comes from the
+        // client, so it is sanitised here, at the same trust boundary as a
+        // formatted body that arrives with a sync.
+        Some(raw) => protocol::sanitize::sanitize_formatted_body(raw),
+        None => {
+            formatting::build_formatted_body_from_custom_emoji(trimmed_body, picker_custom_emoji)
+        }
+    };
 
     let mut content = if let Some(formatted_body) = formatted_body.as_deref() {
         RoomMessageEventContent::text_html(trimmed_body, formatted_body)
     } else {
         RoomMessageEventContent::text_plain(trimmed_body)
     };
+
+    if !mentioned_user_ids.is_empty() {
+        let user_ids = mentioned_user_ids
+            .iter()
+            .map(|user_id| protocol::parse_user_id(user_id))
+            .collect::<Result<Vec<_>, _>>()?;
+        content = content.add_mentions(Mentions::with_user_ids(user_ids));
+    }
 
     if let Some(in_reply_to_event_id_raw) = in_reply_to_event_id_raw {
         let in_reply_to_event_id = parse_event_id(in_reply_to_event_id_raw)?;
@@ -159,6 +177,7 @@ pub async fn send_media_file_from_client(
     room_id_raw: &str,
     file_path_raw: &str,
     compress_media: bool,
+    caption: Option<&str>,
 ) -> Result<MediaSendResult, String> {
     let job = cancellation_state.register_job(room_id_raw, file_path_raw);
     let result = send_media_file_impl(
@@ -167,6 +186,7 @@ pub async fn send_media_file_from_client(
         room_id_raw,
         file_path_raw,
         compress_media,
+        caption,
         &job,
     )
     .await;
@@ -180,6 +200,7 @@ async fn send_media_file_impl(
     room_id_raw: &str,
     file_path_raw: &str,
     compress_media: bool,
+    caption: Option<&str>,
     job: &MediaTranscodeJob,
 ) -> Result<MediaSendResult, String> {
     let cancellation_flag = job.flag();
@@ -300,7 +321,13 @@ async fn send_media_file_impl(
     let content = match media_kind {
         MediaKind::Image => {
             let mut content = RoomMessageEventContent::new(MessageType::Image(
-                ImageMessageEventContent::plain(file_name.clone(), upload_response.content_uri),
+                ImageMessageEventContent::plain(
+                    caption
+                        .filter(|value| !value.trim().is_empty())
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| file_name.clone()),
+                    upload_response.content_uri,
+                ),
             ));
             if let MessageType::Image(image) = &mut content.msgtype {
                 image.filename = Some(file_name.clone());
@@ -310,9 +337,14 @@ async fn send_media_file_impl(
         MediaKind::Video => {
             let mut video_info = VideoInfo::default();
             video_info.mimetype = Some(content_type.to_string());
-            let video =
-                VideoMessageEventContent::plain(file_name.clone(), upload_response.content_uri)
-                    .info(Box::new(video_info));
+            let video = VideoMessageEventContent::plain(
+                caption
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| file_name.clone()),
+                upload_response.content_uri,
+            )
+            .info(Box::new(video_info));
             let mut content = RoomMessageEventContent::new(MessageType::Video(video));
             if let MessageType::Video(video) = &mut content.msgtype {
                 video.filename = Some(file_name.clone());
@@ -321,7 +353,13 @@ async fn send_media_file_impl(
         }
         MediaKind::File => {
             let mut content = RoomMessageEventContent::new(MessageType::File(
-                FileMessageEventContent::plain(file_name.clone(), upload_response.content_uri),
+                FileMessageEventContent::plain(
+                    caption
+                        .filter(|value| !value.trim().is_empty())
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| file_name.clone()),
+                    upload_response.content_uri,
+                ),
             ));
             if let MessageType::File(file) = &mut content.msgtype {
                 file.filename = Some(file_name.clone());

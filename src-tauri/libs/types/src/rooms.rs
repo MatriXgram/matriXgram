@@ -20,6 +20,21 @@ pub struct MatrixChatSummary {
     pub is_direct: bool,
     #[serde(default)]
     pub children_room_ids: Vec<String>,
+    /// Preview of the most recent message, as shown in the chat list.
+    #[serde(default)]
+    pub last_message_preview: Option<String>,
+    /// Origin server timestamp of the most recent message, in milliseconds.
+    #[serde(default)]
+    pub last_message_ts: Option<u64>,
+    /// Number of messages received since the user last read the room.
+    #[serde(default)]
+    pub unread_count: u32,
+    /// Whether the room is pinned ("Chats" in Telegram terms).
+    #[serde(default)]
+    pub is_pinned: bool,
+    /// Whether notifications for the room are muted.
+    #[serde(default)]
+    pub is_muted: bool,
 }
 
 #[derive(Serialize)]
@@ -84,6 +99,36 @@ pub struct MatrixJoinRoomResponse {
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MatrixSearchPublicRoomsRequest {
+    pub server_name: String,
+    pub search_term: Option<String>,
+    pub since: Option<String>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixPublicRoom {
+    pub room_id: String,
+    pub name: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub avatar_url: Option<String>,
+    pub topic: Option<String>,
+    pub joined_members: u64,
+    pub world_readable: bool,
+    pub directory_server: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSearchPublicRoomsResponse {
+    pub rooms: Vec<MatrixPublicRoom>,
+    pub next_batch: Option<String>,
+    pub total_room_count_estimate: Option<u64>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatrixTriggerRoomUpdateRequest {
     pub selected_room_id: Option<String>,
     #[serde(default)]
@@ -114,4 +159,11 @@ pub struct MatrixSelectedRoomMessagesEvent {
     pub room_id: String,
     pub next_from: Option<String>,
     pub messages: Vec<crate::chat::MatrixChatMessage>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixRoomSyncStatusEvent {
+    pub user_id: String,
+    pub error: Option<String>,
 }

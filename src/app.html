@@ -1,10 +1,31 @@
 <!doctype html>
-<html lang="en" data-theme="cerberus">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <title>MatriXgram</title>
+    <script>
+      // Apply the saved theme (or the OS preference) before the first paint so
+      // the window never flashes the wrong palette. The full palette of a
+      // loaded Telegram theme is applied by the app once it starts.
+      (function () {
+        try {
+          var stored = localStorage.getItem("matrixgram.theme.settings") || localStorage.getItem("matrix-telegram.theme.settings");
+          var parsed = stored ? JSON.parse(stored) : null;
+          var mode = parsed && parsed.mode ? parsed.mode : "system";
+          var theme =
+            mode === "system"
+              ? window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light"
+              : mode;
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (error) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

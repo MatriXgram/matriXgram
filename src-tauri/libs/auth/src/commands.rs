@@ -15,8 +15,8 @@ use types::auth::{
 use types::{config, Paths};
 
 use crate::persistence::{
-    clear_app_cache, clear_app_cache_except_auth, clear_matrix_sdk_store, clear_persisted_session,
-    persist_session, prepare_matrix_sdk_store, PersistedMatrixSession,
+    clear_app_cache, clear_app_cache_except_auth, clear_matrix_sdk_store_with_retry,
+    clear_persisted_session, persist_session, prepare_login_store, PersistedMatrixSession,
 };
 use crate::state::{wait_for_e2ee_initialization, AuthState, MatrixSession};
 use crate::workers::start_session_persistence_watcher;
@@ -38,11 +38,13 @@ fn is_crypto_store_account_mismatch(error: &str) -> bool {
 /// the in-flight client for `complete_oauth`.
 pub async fn start_oauth(
     paths: &Paths,
+    app_db: &Arc<AppDb>,
     auth_state: &AuthState,
     request: &MatrixStartOAuthRequest,
 ) -> Result<MatrixStartOAuthResponse, String> {
     let homeserver_url = normalize_homeserver_url(&request.homeserver_url)?;
-    let store_path = prepare_matrix_sdk_store(paths)?;
+    drop(auth_state.take_pending_client()?);
+    let store_path = prepare_login_store(paths, app_db).await?;
     let client = matrix_sdk::Client::builder()
         .server_name_or_homeserver_url(homeserver_url)
         .sqlite_store(&store_path, None)
@@ -109,15 +111,15 @@ pub async fn complete_oauth(
         .take_pending_client()?
         .ok_or_else(|| String::from("Sign-in session expired. Please start sign-in again."))?;
 
-    let parsed = match client
+    let login_result = client
         .matrix_auth()
         .login_with_sso_callback(matrix_sdk::utils::UrlOrQuery::Url(callback_url))
         .map_err(|_| String::from("Callback URL is missing a valid loginToken"))?
-        .initial_device_display_name("Singularity Desktop")
+        .initial_device_display_name(types::config::DEVICE_DISPLAY_NAME)
         .request_refresh_token()
         .send()
-        .await
-    {
+        .await;
+    let parsed = match login_result {
         Ok(parsed) => parsed,
         Err(error) => {
             let error_text = error.to_string();
@@ -127,12 +129,18 @@ pub async fn complete_oauth(
                     "Matrix login hit crypto-store account mismatch; resetting local auth and SDK store"
                 );
 
-                let _ = auth_state.clear_runtime_session();
-                let _ = clear_persisted_session(app_db).await;
-                let _ = clear_app_cache(app_db).await;
-                let _ = clear_matrix_sdk_store(paths);
+                // The client must release its SQLite handles before cleanup.
+                drop(client);
+                auth_state.clear_runtime_session()?;
+                clear_persisted_session(app_db).await?;
+                clear_app_cache(app_db).await?;
+                clear_matrix_sdk_store_with_retry(paths).await.map_err(|error| {
+                    format!("Old local session is still in use. Close other Matrix Telegram windows and restart. {error}")
+                })?;
 
-                return Err(String::from("Sign-in failed. Please start sign-in again."));
+                return Err(String::from(
+                    "Old local session was reset. Please start sign-in again.",
+                ));
             }
 
             return Err(format!("Matrix login completion failed: {error_text}"));
@@ -191,7 +199,8 @@ pub async fn password_login(
         return Err(String::from("Password is required"));
     }
 
-    let store_path = prepare_matrix_sdk_store(paths)?;
+    drop(auth_state.take_pending_client()?);
+    let store_path = prepare_login_store(paths, app_db).await?;
     let client = matrix_sdk::Client::builder()
         .server_name_or_homeserver_url(homeserver_url.clone())
         .sqlite_store(&store_path, None)
@@ -200,14 +209,14 @@ pub async fn password_login(
         .await
         .map_err(|error| format!("Failed to initialize Matrix client: {error}"))?;
 
-    let parsed = match client
+    let login_result = client
         .matrix_auth()
         .login_username(username, &request.password)
-        .initial_device_display_name("Singularity Desktop")
+        .initial_device_display_name(types::config::DEVICE_DISPLAY_NAME)
         .request_refresh_token()
         .send()
-        .await
-    {
+        .await;
+    let parsed = match login_result {
         Ok(parsed) => parsed,
         Err(error) => {
             let error_text = error.to_string();
@@ -217,15 +226,22 @@ pub async fn password_login(
                     "Matrix login hit crypto-store account mismatch; resetting local auth and SDK store"
                 );
 
-                let _ = auth_state.clear_runtime_session();
-                let _ = clear_persisted_session(app_db).await;
-                let _ = clear_app_cache(app_db).await;
-                let _ = clear_matrix_sdk_store(paths);
+                // The client must release its SQLite handles before cleanup.
+                drop(client);
+                auth_state.clear_runtime_session()?;
+                clear_persisted_session(app_db).await?;
+                clear_app_cache(app_db).await?;
+                clear_matrix_sdk_store_with_retry(paths).await.map_err(|error| {
+                    format!("Old local session is still in use. Close other Matrix Telegram windows and restart. {error}")
+                })?;
 
-                return Err(String::from("Sign-in failed. Please try again."));
+                return Err(String::from(
+                    "Old local session was reset. Please sign in again.",
+                ));
             }
 
-            return Err(String::from("Username/password sign-in failed"));
+            log::warn!("Password sign-in failed: {error_text}");
+            return Err(format!("Sign-in failed on {homeserver_url}: {error_text}"));
         }
     };
 
@@ -390,21 +406,27 @@ pub async fn logout(
     paths: &Paths,
     app_db: &Arc<AppDb>,
     auth_state: &AuthState,
+    trigger_state: &types::RoomUpdateTriggerState,
 ) -> Result<MatrixLogoutResponse, String> {
     let client = auth_state.client().ok();
-
-    auth_state.clear_runtime_session()?;
-
+    let _transition = auth_state.begin_logout()?;
+    clear_persisted_session(app_db).await?;
+    // Wake the worker so it drops its old sync future and SQLite client clone.
+    let _ = trigger_state.enqueue_refresh(Some(String::new()), false);
     if let Some(client) = client {
-        if let Err(error) = client.logout().await {
-            log::warn!("Matrix logout failed remotely, clearing local session anyway: {error}");
+        match tokio::time::timeout(std::time::Duration::from_secs(5), client.logout()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => log::warn!("Remote logout failed; signing out locally: {error}"),
+            Err(_) => log::warn!("Remote logout timed out; signing out locally"),
         }
     }
-
-    clear_persisted_session(app_db).await?;
     clear_app_cache(app_db).await?;
-    clear_matrix_sdk_store(paths)?;
-
+    // A token-refresh write that was already in flight cannot resurrect auth.
+    clear_persisted_session(app_db).await?;
+    if let Err(error) = clear_matrix_sdk_store_with_retry(paths).await {
+        // Auth is already revoked locally. The next fresh login retries cleanup.
+        log::warn!("Deferred Matrix store cleanup until next sign-in: {error}");
+    }
     Ok(MatrixLogoutResponse { logged_out: true })
 }
 
