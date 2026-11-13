@@ -101,7 +101,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ format('MatriXgram {0}', github.ref_name) }}
-          body: ${{ format('Release for {0}', github.ref_name) }}
+          generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: release-packages/*
