@@ -59,7 +59,7 @@ rooms = { path = "libs/rooms" }
 settings = { path = "libs/settings" }
 
 [package]
-name = "matrix-telegram"
+name = "matrixgram"
 version = "0.1.0"
 description = "A Telegram-like desktop client for the Matrix protocol"
 authors = ["you"]
@@ -71,7 +71,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "matrix_telegram_lib"
+name = "matrixgram_lib"
 # Only the rlib is built for the desktop app. `staticlib` and `cdylib` are
 # needed by `tauri android build` / `tauri ios build`, and building them here
 # makes rustc link the whole dependency graph three times, which is what makes

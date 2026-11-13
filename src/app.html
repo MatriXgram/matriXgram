@@ -11,7 +11,7 @@
       // loaded Telegram theme is applied by the app once it starts.
       (function () {
         try {
-          var stored = localStorage.getItem("matrix-telegram.theme.settings");
+          var stored = localStorage.getItem("matrixgram.theme.settings") || localStorage.getItem("matrix-telegram.theme.settings");
           var parsed = stored ? JSON.parse(stored) : null;
           var mode = parsed && parsed.mode ? parsed.mode : "system";
           var theme =

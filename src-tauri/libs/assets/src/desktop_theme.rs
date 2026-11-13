@@ -159,7 +159,7 @@ mod tests {
             writer.finish().expect("finish archive");
         }
 
-        let path = std::env::temp_dir().join("matrix-telegram-test-theme.tdesktop-theme");
+        let path = std::env::temp_dir().join("matrixgram-test-theme.tdesktop-theme");
         std::fs::write(&path, buffer.into_inner()).expect("write theme file");
 
         path
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn reports_a_missing_colour_entry() {
-        let path = std::env::temp_dir().join("matrix-telegram-test-theme-broken.tdesktop-theme");
+        let path = std::env::temp_dir().join("matrixgram-test-theme-broken.tdesktop-theme");
         std::fs::write(&path, b"not a zip file").expect("write theme file");
 
         assert!(load_desktop_theme(&path).is_err());

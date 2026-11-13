@@ -10,11 +10,11 @@ on:
       bundle-name:
         required: false
         type: string
-        default: 'matrix-telegram-linux-flatpak.flatpak'
+        default: 'matrixgram-linux-flatpak.flatpak'
       artifact-name:
         required: false
         type: string
-        default: 'matrix-telegram-linux-flatpak'
+        default: 'matrixgram-linux-flatpak'
 
 jobs:
   build-flatpak:

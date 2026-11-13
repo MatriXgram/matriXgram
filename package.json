@@ -1,5 +1,5 @@
 {
-  "name": "matrix-telegram",
+  "name": "matrixgram",
   "version": "0.1.0",
   "description": "A Telegram-like desktop client for the Matrix protocol",
   "type": "module",

@@ -3784,35 +3784,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "matrix-telegram"
-version = "0.1.0"
-dependencies = [
- "assets",
- "auth",
- "chat",
- "log",
- "matrix-sdk",
- "protocol",
- "rooms",
- "rusqlite",
- "serde",
- "serde_json",
- "settings",
- "storage",
- "tauri",
- "tauri-build",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tokio",
- "types",
- "verification",
- "webkit2gtk",
-]
-
-[[package]]
 name = "matrix_indexed_db_futures"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3849,6 +3820,35 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "matrixgram"
+version = "0.1.0"
+dependencies = [
+ "assets",
+ "auth",
+ "chat",
+ "log",
+ "matrix-sdk",
+ "protocol",
+ "rooms",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "settings",
+ "storage",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tokio",
+ "types",
+ "verification",
+ "webkit2gtk",
 ]
 
 [[package]]

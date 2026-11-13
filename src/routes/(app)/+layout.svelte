@@ -57,19 +57,21 @@
   const isCommunityExplorer = $derived(page.url.searchParams.get("view") === "communities");
 
   // The chat list can be resized by dragging the divider next to it.
-  const SIDEBAR_WIDTH_KEY = "matrix-telegram.sidebarWidth";
+  const SIDEBAR_WIDTH_KEY = "matrixgram.sidebarWidth";
+  const LEGACY_SIDEBAR_WIDTH_KEY = "matrix-telegram.sidebarWidth";
   const SIDEBAR_WIDTH_DEFAULT = 300;
   const SIDEBAR_WIDTH_MIN = 240;
   const SIDEBAR_WIDTH_MAX = 440;
 
   function loadSidebarWidth(): number {
     try {
-      const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+      const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) ?? localStorage.getItem(LEGACY_SIDEBAR_WIDTH_KEY));
       if (
         Number.isFinite(stored) &&
         stored >= SIDEBAR_WIDTH_MIN &&
         stored <= SIDEBAR_WIDTH_MAX
       ) {
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(stored));
         return Math.round(stored);
       }
     } catch {

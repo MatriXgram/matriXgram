@@ -320,9 +320,19 @@ fn cached_media_urls() -> &'static Mutex<HashMap<String, String>> {
 fn media_cache_dir() -> PathBuf {
     MEDIA_CACHE_DIR
         .get_or_init(|| {
-            let mut dir = std::env::temp_dir();
-            dir.push("matrix-telegram");
-            dir.push("media-cache");
+            let root = std::env::temp_dir();
+            let dir = root.join("matrixgram").join("media-cache");
+            let legacy = root.join("matrix-telegram").join("media-cache");
+
+            if !dir.exists() && legacy.exists() {
+                if let Some(parent) = dir.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if std::fs::rename(&legacy, &dir).is_err() {
+                    return legacy;
+                }
+            }
+
             dir
         })
         .clone()

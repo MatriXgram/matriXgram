@@ -5,7 +5,8 @@
   import { shellChats, shellCurrentUserId } from "$lib/chats/shell";
   import type { MatrixPublicRoom } from "$lib/chats/types";
 
-  const STORAGE_KEY = "matrix-telegram.community-directories";
+  const STORAGE_KEY = "matrixgram.community-directories";
+  const LEGACY_STORAGE_KEY = "matrix-telegram.community-directories";
   const defaults = [
     "matrix.org",
     "matrixrooms.info",
@@ -78,8 +79,9 @@
 
   onMount(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY) ?? "[]");
       if (Array.isArray(saved)) directories = [...new Set([...defaults, ...saved.filter((item) => typeof item === "string")])];
+      if (!localStorage.getItem(STORAGE_KEY) && localStorage.getItem(LEGACY_STORAGE_KEY)) localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     } catch { /* use built-in directories */ }
     addOwnServer($shellCurrentUserId);
     void loadRooms();

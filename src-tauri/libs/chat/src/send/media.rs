@@ -176,7 +176,7 @@ pub fn temp_output_path(path: &Path, extension: &str) -> PathBuf {
 
     if std::fs::create_dir_all(&output).is_err() {
         output = std::env::temp_dir();
-        output.push("matrix-telegram");
+        output.push("matrixgram");
         output.push("media-cache");
         output.push("transcode");
         let _ = std::fs::create_dir_all(&output);
@@ -187,7 +187,7 @@ pub fn temp_output_path(path: &Path, extension: &str) -> PathBuf {
         .and_then(OsStr::to_str)
         .unwrap_or("attachment");
     let nonce = rand::random::<u64>();
-    output.push(format!("matrix-telegram-{stem}-{nonce}.{extension}"));
+    output.push(format!("matrixgram-{stem}-{nonce}.{extension}"));
     output
 }
 

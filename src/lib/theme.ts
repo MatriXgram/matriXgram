@@ -34,7 +34,8 @@ export interface ThemeSettings {
   wallpaper: string | null;
 }
 
-const STORAGE_KEY = "matrix-telegram.theme.settings";
+const STORAGE_KEY = "matrixgram.theme.settings";
+const LEGACY_STORAGE_KEY = "matrix-telegram.theme.settings";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 /** The theme the app starts with; it can be changed in the settings. */
@@ -223,10 +224,12 @@ const PALETTE_VARIABLES = [...new Set([...Object.values(TELEGRAM_COLOR_MAP), "--
 
 function loadSettings(): ThemeSettings {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!stored) {
       return { ...DEFAULT_THEME_SETTINGS };
     }
+
+    if (!localStorage.getItem(STORAGE_KEY)) localStorage.setItem(STORAGE_KEY, stored);
 
     const parsed = JSON.parse(stored) as Partial<ThemeSettings>;
     return {

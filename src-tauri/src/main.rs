@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    matrix_telegram_lib::run()
+    matrixgram_lib::run()
 }

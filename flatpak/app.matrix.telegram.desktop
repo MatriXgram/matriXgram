@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=MatriXgram
 Comment=MatriXgram, a Telegram-like Matrix client
-Exec=matrix-telegram %U
+Exec=matrixgram %U
 Icon=app.matrix.telegram
 Terminal=false
 Type=Application
