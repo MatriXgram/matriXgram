@@ -96,6 +96,33 @@ jobs:
       - name: package release assets by package type
         run: bash scripts/package-release-assets.sh "${{ github.ref_name }}"
 
+      - name: remove installer assets from older releases
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const currentTag = context.ref.replace(/^refs\/tags\//, "");
+            const installerAsset = /\.(?:exe|msi|dmg|deb|rpm|flatpak|appimage|app\.tar\.gz)(?:\.tar\.gz)?(?:\.sig)?$/i;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+
+            for (const release of releases) {
+              if (release.tag_name === currentTag) continue;
+
+              for (const asset of release.assets) {
+                if (!installerAsset.test(asset.name)) continue;
+                await github.rest.repos.deleteReleaseAsset({
+                  owner,
+                  repo,
+                  asset_id: asset.id,
+                });
+                core.info(`Removed ${asset.name} from release ${release.tag_name}`);
+              }
+            }
+
       - name: publish github release
         uses: softprops/action-gh-release@v3
         with:
