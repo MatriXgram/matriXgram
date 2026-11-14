@@ -230,9 +230,7 @@
 <main class="flex h-full flex-col items-center overflow-y-auto bg-panel-alt p-4">
   <section class="login-card my-auto w-full max-w-[340px] shrink-0 space-y-4 rounded-xl border border-hairline bg-panel p-5 shadow-sm">
     <header class="flex items-center gap-3">
-      <div class="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5A8.5 8.5 0 0 1 10.5 3h2a8.5 8.5 0 0 1 8.5 8.5Z"/><path d="M7 9h10M7 13h6"/></svg>
-      </div>
+      <img src="/favicon.svg" alt="MatriXgram logo" class="size-9 shrink-0 rounded-lg" />
       <div>
         <h1 class="text-lg font-semibold leading-tight">Sign in</h1>
         <p class="mt-0.5 text-[11px] text-secondary">MatriXgram</p>

@@ -33,7 +33,7 @@
       ondblclick={handleTitlebarDoubleClick}
     >
       <div class="flex h-full min-w-0 flex-1 items-center gap-2 px-3" data-tauri-drag-region>
-        <img src="/favicon.png" alt="" class="size-4" data-tauri-drag-region />
+        <img src="/favicon.svg" alt="" class="size-5" data-tauri-drag-region />
         <span class="truncate text-xs font-medium" data-tauri-drag-region>MatriXgram</span>
       </div>
       <div class="app-titlebar-controls flex h-full shrink-0 items-stretch">

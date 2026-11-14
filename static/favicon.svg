@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <g transform="translate(-22.4 -22.4) scale(1.35)">
+    <path d="M52 25H38a13 13 0 0 0-13 13v52a13 13 0 0 0 13 13h14M76 25h14a13 13 0 0 1 13 13v52a13 13 0 0 1-13 13H76" fill="none" stroke="#398DDA" stroke-linecap="round" stroke-linejoin="round" stroke-width="5" />
+    <g transform="translate(33.4 33.4) scale(2.55)" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+      <polygon points="22 2 15 22 11 13 2 9 22 2" fill="#000" stroke="#000" stroke-width="4" stroke-linejoin="round" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" fill="#000" />
+      <line x1="22" y1="2" x2="11" y2="13" />
+    </g>
+  </g>
+</svg>

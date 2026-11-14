@@ -48,3 +48,6 @@ MatriXgram is a fork of [Singularity](https://github.com/Luxuride/singularity)
 by Luxuride, licensed under **GPL-3.0-or-later**. This project retains the
 upstream GPL license. The Matrix Rust SDK and its JavaScript components are
 Apache-2.0.
+
+The Matrix name and logo are trademarks of The Matrix.org Foundation. This
+project is independent and is not endorsed by or affiliated with the Foundation.
