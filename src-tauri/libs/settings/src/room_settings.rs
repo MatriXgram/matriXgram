@@ -128,12 +128,19 @@ async fn get_room_settings(
         false
     };
 
+    let max_upload_size = client
+        .load_or_fetch_max_upload_size()
+        .await
+        .ok()
+        .map(u64::from);
+
     Ok(MatrixRoomSettingsResponse {
         room_id: room_id.to_string(),
         kind,
         topic: room.topic(),
         canonical_alias: room.canonical_alias().map(|alias| alias.to_string()),
         joined_members: room.joined_members_count(),
+        max_upload_size,
         notification_mode: notification_mode.map(notification_mode_from_sdk),
         notification_mode_user_defined,
         is_favourite: room.is_favourite(),

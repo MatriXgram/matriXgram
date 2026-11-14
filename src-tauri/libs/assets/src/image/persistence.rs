@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use log::{info, warn};
@@ -8,6 +9,8 @@ use percent_encoding::percent_decode_str;
 
 static MEDIA_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static CACHED_MEDIA_URLS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+const DEFAULT_MEDIA_CACHE_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+static MEDIA_CACHE_MAX_BYTES: AtomicU64 = AtomicU64::new(DEFAULT_MEDIA_CACHE_MAX_BYTES);
 
 /// A normalized, disk-ready media payload. Carries the raw bytes plus the
 /// metadata needed to derive a stable file name and extension. Shared by the
@@ -88,30 +91,95 @@ pub fn initialize_media_cache_dir(cache_dir: &Path) {
 ///
 /// Kept for a "clear cache" action; the app does not call it on startup any
 /// more, because that threw away every image the user had already seen.
-pub fn clear_media_cache() {
+pub fn clear_media_cache() -> Result<u64, String> {
     let cache_dir = media_cache_dir();
-    if !cache_dir.exists() {
-        return;
+    let bytes_cleared = media_cache_size_bytes();
+    if cache_dir.exists() {
+        fs::remove_dir_all(&cache_dir)
+            .map_err(|error| format!("Failed to clear media cache directory: {error}"))?;
     }
-
-    if let Err(error) = fs::remove_dir_all(&cache_dir) {
-        warn!("Failed to clear media cache directory: {error}");
-        return;
+    fs::create_dir_all(&cache_dir)
+        .map_err(|error| format!("Failed to recreate media cache directory: {error}"))?;
+    if let Ok(mut urls) = cached_media_urls().lock() {
+        urls.clear();
     }
-
-    let _ = fs::create_dir_all(&cache_dir);
+    Ok(bytes_cleared)
 }
 
-/// Maximum size of the media cache before the oldest files are dropped.
-const MEDIA_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+pub fn media_cache_max_bytes() -> u64 {
+    MEDIA_CACHE_MAX_BYTES.load(Ordering::Relaxed)
+}
 
-/// Trim the media cache to `MEDIA_CACHE_MAX_BYTES`, dropping the oldest files
+pub fn set_media_cache_max_bytes(bytes: u64) {
+    MEDIA_CACHE_MAX_BYTES.store(bytes, Ordering::Relaxed);
+    trim_media_cache();
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MediaCacheUsage {
+    pub image_bytes: u64,
+    pub video_bytes: u64,
+    pub other_bytes: u64,
+}
+
+impl MediaCacheUsage {
+    pub fn total_bytes(self) -> u64 {
+        self.image_bytes
+            .saturating_add(self.video_bytes)
+            .saturating_add(self.other_bytes)
+    }
+}
+
+pub fn media_cache_usage() -> MediaCacheUsage {
+    let Ok(entries) = fs::read_dir(media_cache_dir()) else {
+        return MediaCacheUsage::default();
+    };
+
+    let mut usage = MediaCacheUsage::default();
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+
+        let extension = entry
+            .path()
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let bytes = metadata.len();
+        match extension.as_str() {
+            "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "avif" | "heic" | "tif" | "tiff"
+            | "svg" => {
+                usage.image_bytes = usage.image_bytes.saturating_add(bytes);
+            }
+            "mp4" | "m4v" | "mov" | "webm" | "mkv" | "avi" | "ogv" | "3gp" | "mpeg" | "mpg" => {
+                usage.video_bytes = usage.video_bytes.saturating_add(bytes);
+            }
+            _ => usage.other_bytes = usage.other_bytes.saturating_add(bytes),
+        }
+    }
+    usage
+}
+
+pub fn media_cache_size_bytes() -> u64 {
+    media_cache_usage().total_bytes()
+}
+
+/// Trim the media cache to the configured maximum, dropping the oldest files
 /// first.
 ///
 /// Called on startup: the cache is disposable, so a full disk is worse than a
 /// re-download, but a cache that is wiped on every launch makes the app feel
 /// broken on a slow connection.
 pub fn trim_media_cache() {
+    trim_media_cache_preserving(None);
+}
+
+fn trim_media_cache_preserving(preserve: Option<&Path>) {
     let cache_dir = media_cache_dir();
     if !cache_dir.exists() {
         return;
@@ -144,7 +212,8 @@ pub fn trim_media_cache() {
         files.push((modified, metadata.len(), entry.path()));
     }
 
-    if total_bytes <= MEDIA_CACHE_MAX_BYTES {
+    let max_bytes = media_cache_max_bytes();
+    if total_bytes <= max_bytes {
         return;
     }
 
@@ -152,8 +221,12 @@ pub fn trim_media_cache() {
 
     let mut remaining = total_bytes;
     for (_, size, path) in files {
-        if remaining <= MEDIA_CACHE_MAX_BYTES {
+        if remaining <= max_bytes {
             break;
+        }
+
+        if preserve.is_some_and(|preserve_path| preserve_path == path.as_path()) {
+            continue;
         }
 
         if let Err(error) = fs::remove_file(&path) {
@@ -202,7 +275,9 @@ pub fn persist_normalized_media(request: &NormalizedMediaLoad) -> Option<String>
         return None;
     }
 
-    Some(to_asset_storage_url(&final_path))
+    let asset_url = to_asset_storage_url(&final_path);
+    trim_media_cache_preserving(Some(&final_path));
+    Some(asset_url)
 }
 
 pub fn to_asset_storage_url(path: &Path) -> String {

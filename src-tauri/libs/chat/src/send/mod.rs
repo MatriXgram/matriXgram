@@ -266,6 +266,20 @@ async fn send_media_file_impl(
         transcode_mode,
     } = upload;
 
+    let max_upload_size = client
+        .load_or_fetch_max_upload_size()
+        .await
+        .map_err(|error| format!("Failed to read the homeserver upload limit: {error}"))?;
+    let upload_size = u64::try_from(bytes.len())
+        .map_err(|error| format!("Prepared media size is invalid: {error}"))?;
+    let max_upload_size = u64::from(max_upload_size);
+    if upload_size > max_upload_size {
+        return Err(format!(
+            "Prepared file is larger than this homeserver’s {} upload limit",
+            max_upload_size
+        ));
+    }
+
     report_transcode_progress(
         event_sink,
         room_id_raw,

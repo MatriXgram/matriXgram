@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-import {
+	import {
 		matrixRoomAddKeyword,
 		matrixRoomGetKeywords,
 		matrixRoomGetSettings,
@@ -12,13 +12,17 @@ import {
 		matrixRoomSetNotificationMode,
 		matrixRoomSetTag,
 } from "$lib/settings/api";
-import type {
+	import type {
 		MatrixRoomNotificationMode,
 		MatrixRoomSettingsResponse,
 		MatrixRoomTag,
 } from "$lib/settings/types";
+	import { matrixGetRoomImage, matrixGetRoomMembers, matrixTriggerRoomUpdate } from "$lib/chats/api";
 	import { shellErrorMessage, shellSelectedRoomId } from "$lib/chats/shell";
-	import { matrixTriggerRoomUpdate } from "$lib/chats/api";
+	import type { MatrixRoomMember } from "$lib/chats/types";
+	import { roomImageCache } from "$lib/components/navigation/shared/image-cache.svelte";
+	import MessageAvatar from "$lib/components/messaging/message/MessageAvatar.svelte";
+	import { openUserProfile } from "$lib/chats/user-profile";
 	import { KeywordEditor, NotificationModeSelector } from "$lib/components/settings";
 
 	interface Props {
@@ -33,15 +37,28 @@ import type {
 
 	let dialogElement: HTMLDialogElement | undefined = $state();
 	let settings = $state<MatrixRoomSettingsResponse | null>(null);
+	let roomAvatarUrl = $state<string | null>(null);
+	let roomMembers = $state<MatrixRoomMember[]>([]);
 	let loading = $state(false);
 	let saving = $state(false);
 	let errorMessage = $state("");
 	let newTagName = $state("");
 	let confirmingLeave = $state(false);
-	let activeTab = $state<"notifications" | "tags" | "danger">("notifications");
+	let activeTab = $state<"profile" | "members" | "notifications" | "tags">("profile");
 	let roomKeywords = $state<string[]>([]);
 
 	const subjectLabel = $derived(isSpace ? "space" : "room");
+
+	function formatBytes(bytes: number): string {
+		const units = ["B", "KB", "MB", "GB", "TB"];
+		let value = bytes;
+		let unit = 0;
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024;
+			unit += 1;
+		}
+		return `${value.toFixed(unit === 0 || value >= 10 ? 0 : 1)} ${units[unit]}`;
+	}
 
 	$effect(() => {
 		if (open && dialogElement) {
@@ -56,11 +73,13 @@ import type {
 
 	function resetState() {
 		settings = null;
+		roomAvatarUrl = null;
+		roomMembers = [];
 		errorMessage = "";
 		newTagName = "";
 		confirmingLeave = false;
 		roomKeywords = [];
-		activeTab = "notifications";
+		activeTab = "profile";
 	}
 
 	async function loadSettings() {
@@ -68,10 +87,16 @@ import type {
 		loading = true;
 
 		try {
-			[settings, roomKeywords] = await Promise.all([
+			const [nextSettings, nextKeywords, nextMembers, nextAvatar] = await Promise.all([
 				matrixRoomGetSettings({ roomId }),
 				matrixRoomGetKeywords({ roomId }).then((response) => response.keywords),
+				matrixGetRoomMembers(roomId).catch(() => []),
+				roomImageCache.getOrLoad(roomId, () => matrixGetRoomImage(roomId)),
 			]);
+			settings = nextSettings;
+			roomKeywords = nextKeywords;
+			roomMembers = nextMembers;
+			roomAvatarUrl = nextAvatar;
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : "Failed to load settings";
 		} finally {
@@ -240,6 +265,28 @@ import type {
 					<button
 						type="button"
 						class="btn text-sm"
+						class:preset-filled-primary-500={activeTab === "profile"}
+						class:preset-tonal={activeTab !== "profile"}
+						onclick={() => (activeTab = "profile")}
+					>
+						Profile
+					</button>
+				</li>
+				<li>
+					<button
+						type="button"
+						class="btn text-sm"
+						class:preset-filled-primary-500={activeTab === "members"}
+						class:preset-tonal={activeTab !== "members"}
+						onclick={() => (activeTab = "members")}
+					>
+						Members
+					</button>
+				</li>
+				<li>
+					<button
+						type="button"
+						class="btn text-sm"
 						class:preset-filled-primary-500={activeTab === "notifications"}
 						class:preset-tonal={activeTab !== "notifications"}
 						onclick={() => (activeTab = "notifications")}
@@ -258,48 +305,102 @@ import type {
 						Tags
 					</button>
 				</li>
-				<li>
-					<button
-						type="button"
-						class="btn text-sm"
-						class:preset-filled-primary-500={activeTab === "danger"}
-						class:preset-tonal={activeTab !== "danger"}
-						onclick={() => (activeTab = "danger")}
-					>
-						Danger Zone
-					</button>
-				</li>
 			</ul>
 		</nav>
 
 		{#if loading}
 			<p class="text-sm text-surface-700-300">Loading settings...</p>
 		{:else if settings}
-			<section class="card space-y-2 p-3 preset-outlined-surface-300-700 bg-surface-50-950">
-				<h3 class="h6">Room information</h3>
-				<div class="grid gap-2 text-sm">
-					<div>
-						<p class="text-xs text-surface-700-300">Description</p>
-						<p class="whitespace-pre-wrap break-words">{settings.topic || "No description"}</p>
-					</div>
-					<div>
-						<p class="text-xs text-surface-700-300">Room ID</p>
-						<p class="break-all font-mono text-xs">{settings.roomId}</p>
-					</div>
-					{#if settings.canonicalAlias}
-						<div>
-						<p class="text-xs text-surface-700-300">Room address</p>
-						<p class="break-all font-mono text-xs">{settings.canonicalAlias}</p>
-						</div>
-					{/if}
-					<div>
-						<p class="text-xs text-surface-700-300">Members</p>
-						<p>{settings.joinedMembers.toLocaleString()}</p>
-					</div>
-				</div>
-			</section>
 			{#if errorMessage}
 				<p class="text-sm preset-filled-error-500 rounded p-2">{errorMessage}</p>
+			{/if}
+
+			{#if activeTab === "profile"}
+				<section class="card space-y-3 p-3 preset-outlined-surface-300-700 bg-surface-50-950">
+					<div class="flex items-center gap-3">
+						<div class="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full bg-primary-500/15 text-lg font-semibold text-primary-600-400">
+							{#if roomAvatarUrl}
+								<img src={roomAvatarUrl} alt="" class="size-full object-cover" onerror={() => (roomAvatarUrl = null)} />
+							{:else}
+								{roomName.slice(0, 1).toUpperCase() || "#"}
+							{/if}
+						</div>
+						<div class="min-w-0">
+							<p class="text-xs text-surface-700-300">Profile</p>
+							<h3 class="truncate text-base font-semibold">{roomName}</h3>
+						</div>
+					</div>
+					<div>
+						<p class="text-xs text-surface-700-300">Description</p>
+						<p class="whitespace-pre-wrap break-words text-sm">{settings.topic || "No description"}</p>
+					</div>
+				</section>
+				<section class="card space-y-2 p-3 preset-outlined-surface-300-700 bg-surface-50-950">
+					<h3 class="h6">Room information</h3>
+					<div class="grid gap-2 text-sm">
+						<div>
+							<p class="text-xs text-surface-700-300">Room ID</p>
+							<p class="break-all font-mono text-xs">{settings.roomId}</p>
+						</div>
+						{#if settings.canonicalAlias}
+							<div>
+								<p class="text-xs text-surface-700-300">Room address</p>
+								<p class="break-all font-mono text-xs">{settings.canonicalAlias}</p>
+							</div>
+						{/if}
+						<div>
+							<p class="text-xs text-surface-700-300">Members</p>
+							<p>{settings.joinedMembers.toLocaleString()}</p>
+						</div>
+						<div>
+							<p class="text-xs text-surface-700-300">Maximum upload size (homeserver)</p>
+							<p>{settings.maxUploadSize == null ? "Unknown" : formatBytes(settings.maxUploadSize)}</p>
+						</div>
+					</div>
+					<p class="text-xs text-surface-700-300">This is the server-reported limit; a proxy may enforce a lower one.</p>
+				</section>
+				{#if settings.joined}
+					<section class="card space-y-2 p-3 preset-outlined-error-500 bg-surface-50-950">
+						<h3 class="h6 text-error-500">Danger zone</h3>
+						{#if confirmingLeave}
+							<p class="text-sm text-surface-700-300">Leave this {subjectLabel}? You can rejoin later.</p>
+							<div class="flex gap-2">
+								<button type="button" class="btn preset-tonal px-3 py-1 text-sm" onclick={() => (confirmingLeave = false)} disabled={saving}>Cancel</button>
+								<button type="button" class="btn preset-filled-error-500 px-3 py-1 text-sm" onclick={leave} disabled={saving}>{saving ? "Leaving..." : `Leave ${subjectLabel}`}</button>
+							</div>
+						{:else}
+							<button type="button" class="btn preset-outlined-error-500 px-3 py-1 text-sm self-start" onclick={() => (confirmingLeave = true)} disabled={saving}>Leave {subjectLabel}</button>
+						{/if}
+					</section>
+				{/if}
+			{/if}
+
+			{#if activeTab === "members"}
+				<section class="card space-y-2 p-3 preset-outlined-surface-300-700 bg-surface-50-950">
+					<div class="flex items-center justify-between gap-2">
+						<h3 class="h6">Members</h3>
+						<span class="text-xs text-surface-700-300">{settings.joinedMembers.toLocaleString()}</span>
+					</div>
+					{#if roomMembers.length}
+						<ul class="max-h-96 divide-y divide-surface-200-800 overflow-y-auto">
+							{#each roomMembers as member (member.userId)}
+								<li class="flex min-w-0 items-center gap-2 py-2">
+									<MessageAvatar
+									{roomId}
+									sender={member.userId}
+									onOpenProfile={(avatarUrl) => openUserProfile({ roomId, userId: member.userId, displayName: member.displayName, avatarUrl })}
+								/>
+									<button type="button" class="min-w-0 flex-1 cursor-pointer text-left" onclick={() => openUserProfile({ roomId, userId: member.userId, displayName: member.displayName })}>
+										<p class="truncate text-sm">{member.displayName}</p>
+										<p class="truncate font-mono text-xs text-surface-700-300">{member.userId}</p>
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="text-sm text-surface-700-300">Member list unavailable.</p>
+					{/if}
+				</section>
 			{/if}
 
 			{#if activeTab === "notifications"}
@@ -400,49 +501,6 @@ import type {
 			</section>
 			{/if}
 
-			{#if activeTab === "danger"}
-			{#if settings.joined}
-				<section class="card p-3 preset-outlined-error-500 bg-surface-50-950 space-y-2">
-					<h3 class="h6 text-error-500">Danger zone</h3>
-					{#if confirmingLeave}
-						<p class="text-sm text-surface-700-300">
-							Leave this {subjectLabel}? You can rejoin later.
-						</p>
-						<div class="flex gap-2">
-							<button
-								type="button"
-								class="btn preset-tonal px-3 py-1 text-sm"
-								onclick={() => (confirmingLeave = false)}
-								disabled={saving}
-							>
-								Cancel
-							</button>
-							<button
-								type="button"
-								class="btn preset-filled-error-500 px-3 py-1 text-sm"
-								onclick={leave}
-								disabled={saving}
-							>
-								{saving ? "Leaving..." : `Leave ${subjectLabel}`}
-							</button>
-						</div>
-					{:else}
-						<button
-							type="button"
-							class="btn preset-outlined-error-500 px-3 py-1 text-sm self-start"
-							onclick={() => (confirmingLeave = true)}
-							disabled={saving}
-						>
-							Leave {subjectLabel}
-						</button>
-					{/if}
-				</section>
-			{:else}
-				<p class="text-sm text-surface-700-300">
-					Not joined — notification settings and leaving are unavailable.
-				</p>
-			{/if}
-			{/if}
 		{:else if errorMessage}
 			<p class="text-sm preset-filled-error-500 rounded p-2">{errorMessage}</p>
 		{/if}

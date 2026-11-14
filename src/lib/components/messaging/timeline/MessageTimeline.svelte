@@ -37,9 +37,11 @@
     onScroll?: (event: Event) => void;
     onOpenRoomSettings?: (roomId: string) => void;
     onRetryMessage?: RetryMessageHandler;
+    onRemoveFailedMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
     onForwardMessage?: (message: TimelineMessage) => void;
+    onDeleteMessage?: (message: TimelineMessage) => void;
     onLoadJumpContext?: (eventId: string) => Promise<boolean>;
   }
 
@@ -63,9 +65,11 @@
     onScroll,
     onOpenRoomSettings,
     onRetryMessage,
+    onRemoveFailedMessage,
     onToggleReaction,
     onReplyToMessage,
     onForwardMessage,
+    onDeleteMessage,
     onLoadJumpContext,
   }: Props = $props();
 
@@ -98,9 +102,11 @@
       {onScroll}
       {onProgrammaticScroll}
       {onRetryMessage}
+      {onRemoveFailedMessage}
       {onToggleReaction}
       {onReplyToMessage}
       onForward={onForwardMessage}
+      {onDeleteMessage}
       {onTimelineElementChange}
       {onLoadJumpContext}
     />

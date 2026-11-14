@@ -6,6 +6,7 @@
 
         const settingsNavItems = [
             { href: "/settings", label: "General" },
+            { href: "/settings/storage", label: "Storage" },
             { href: "/settings/notifications", label: "Notifications" },
             { href: "/settings/profile", label: "Profile" },
             { href: "/settings/account", label: "Account" },

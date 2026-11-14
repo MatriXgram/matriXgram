@@ -2,7 +2,7 @@
   import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME, type DndEvent } from "svelte-dnd-action";
   import { matrixGetRoomImage } from "$lib/chats/api";
   import type { MatrixChatSummary } from "$lib/chats/types";
-  import { isVirtualRoomId, roomImageCache } from "../shared";
+  import { isVirtualRoomId, roomImageCache, roomImageChangeEpoch } from "../shared";
   import FixedRootSpaceItem from "./FixedRootSpaceItem.svelte";
   import SortableRootSpaceItem from "./SortableRootSpaceItem.svelte";
   import JoinRoomDialog from "./JoinRoomDialog.svelte";
@@ -61,10 +61,11 @@
   });
 
   $effect(() => {
+    const cacheEpoch = roomImageChangeEpoch.current;
     const known: Record<string, string | null> = {};
 
     for (const space of spaces) {
-      if (space.imageUrl) {
+      if (space.imageUrl && cacheEpoch === 0) {
         known[space.roomId] = space.imageUrl;
         roomImageCache.prime(space.roomId, space.imageUrl);
         continue;
@@ -80,6 +81,7 @@
   });
 
   $effect(() => {
+    void roomImageChangeEpoch.current;
     for (const space of spaces) {
       if (space.imageUrl || isVirtualRoomId(space.roomId)) {
         continue;

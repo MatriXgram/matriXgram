@@ -6,7 +6,10 @@ export type MessageGroup = {
   sender: string;
   messages: { key: string; message: TimelineMessage }[];
 };
-export type TimelineGroupRow = MessageGroup | { kind: "separator"; key: string; timestamp: number };
+export type TimelineGroupRow =
+  | MessageGroup
+  | { kind: "separator"; key: string; timestamp: number }
+  | { kind: "system"; key: string; message: TimelineMessage };
 const GROUPING_WINDOW_MS = 5 * 60 * 1000;
 
 // Reconcile by overlapping messages so prepending history or appending a new
@@ -26,6 +29,13 @@ export function createTimelineGrouper() {
       const key = message.localId ?? message.eventId ?? `${index}-${message.timestamp ?? 0}`;
       const day = message.timestamp != null ? new Date(message.timestamp).toDateString() : null;
       if (day && day !== lastDay) rows.push({ kind: "separator", key: `separator-${key}`, timestamp: message.timestamp! });
+      if (message.messageType === "m.room.member") {
+        rows.push({ kind: "system", key: `system-${key}`, message });
+        group = undefined;
+        lastMessage = undefined;
+        lastDay = day;
+        continue;
+      }
       const gap = lastMessage?.timestamp != null && message.timestamp != null
         ? message.timestamp - lastMessage.timestamp : null;
       const continues = group && lastMessage?.sender === message.sender && day && day === lastDay &&

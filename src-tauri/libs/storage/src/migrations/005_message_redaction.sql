@@ -1,0 +1,1 @@
+ALTER TABLE message_cache ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0;

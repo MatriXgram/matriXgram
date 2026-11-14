@@ -11,8 +11,10 @@ pub use file::{file_extension_from_mime, save_file_to_path};
 pub use image::{
     cache_event_image, cache_mxc_media_to_local_path, canonical_pack_source_url, clear_media_cache,
     image_extension_from_mime, initialize_media_cache_dir, load_media_bytes_from_resolved_url,
-    media_cache_dir_path, media_url_is_available, resolve_pack_media_url, resolved_media_file_path,
-    trim_media_cache, ImageCacheKeyParts, NormalizedMediaLoad,
+    media_cache_dir_path, media_cache_max_bytes, media_cache_size_bytes, media_cache_usage,
+    media_url_is_available, resolve_pack_media_url, resolved_media_file_path,
+    set_media_cache_max_bytes, trim_media_cache, ImageCacheKeyParts, MediaCacheUsage,
+    NormalizedMediaLoad,
 };
 pub use video::{
     cache_video, video_extension_from_mime, VideoCacheKeyParts, VideoCacheKeyPartsBuilder,

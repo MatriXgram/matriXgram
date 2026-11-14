@@ -66,6 +66,14 @@ export const senderAvatarCache = new ImageCache();
 /// PROFILE_AVATAR_UPDATED handler after the cache has been invalidated);
 /// message avatars read it so their load effects re-run and re-resolve.
 export const avatarChangeEpoch = $state({ current: 0 });
+export const roomImageChangeEpoch = $state({ current: 0 });
+
+export function clearImageCaches() {
+  roomImageCache.clear();
+  senderAvatarCache.clear();
+  roomImageChangeEpoch.current += 1;
+  avatarChangeEpoch.current += 1;
+}
 
 /// Drop cached avatar entries for a user. Pass a `roomId` to scope the
 /// invalidation to one room's cache key, or omit it to clear every room.

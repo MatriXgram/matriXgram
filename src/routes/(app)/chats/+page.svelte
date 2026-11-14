@@ -1,22 +1,32 @@
 <script lang="ts">
   import { page } from "$app/state";
   import CommunityExplorer from "$lib/components/navigation/rooms/CommunityExplorer.svelte";
-  import { matrixGetRoomReadState, matrixMarkRoomRead, matrixGetReadContext, matrixGetNewerMessages } from "$lib/chats/api";
+import {
+  matrixGetRoomReadState,
+  matrixMarkRoomRead,
+  matrixGetReadContext,
+  matrixGetNewerMessages,
+  matrixGetUploadLimit,
+  matrixPrefetchPinnedMessageContexts,
+} from "$lib/chats/api";
   import { firstUnreadIndex } from "$lib/chats/read-position";
 import { formatDraft } from "$lib/components/messaging/composer/draftFormatting";
 import type { ComposerMention } from "$lib/components/messaging/composer";
   import { onMount, tick } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { open } from "@tauri-apps/plugin-dialog";
 
   import {
     matrixCancelMediaTranscode,
     matrixGetFileSize,
+    matrixRemovePastedFile,
     matrixSendChatMessage,
     matrixSendMediaFile,
     matrixStreamChatMessages,
     matrixToggleReaction,
+    matrixRedactMessage,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
   import { EVENT_MEDIA_TRANSCODE_PROGRESS } from "$lib/events";
@@ -58,6 +68,9 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
     filePath: string;
     fileName: string;
     fileSize: number | null;
+    maxUploadSize: number | null;
+    checkingLimit: boolean;
+    limitError: string;
     messageType: "m.image" | "m.video" | "m.file";
     compressMedia: boolean;
   } | null>(null);
@@ -68,9 +81,12 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
   let mediaErrorMessage = $state("");
   let activeMediaFilePath = $state("");
   let mediaTranscodeProgress = $state<MatrixMediaTranscodeProgressEvent | null>(null);
+  let composerDockElement = $state<HTMLDivElement | null>(null);
+  const mediaDraftsByLocalId = new Map<string, { filePath: string; compressMedia: boolean; caption: string; roomId: string }>();
   let forwardingMessage = $state<TimelineMessage | null>(null);
   let forwardError = $state("");
   let forwarding = $state(false);
+  let prefetchedPinnedRoomsKey = "";
 
   let messages = $state<TimelineMessage[]>([]);
   let nextFrom = $state<string | null>(null);
@@ -123,6 +139,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
   onMount(() => {
     let unlisten = () => {};
     let unlistenTranscode = () => {};
+    let unlistenDrop = () => {};
 
     void (async () => {
       unlisten = await subscribeToRoomUpdates({
@@ -143,13 +160,37 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
           mediaTranscodeProgress = event.payload;
         },
       );
+      unlistenDrop = await getCurrentWebview().onDragDropEvent((event) => {
+        if (event.payload.type !== "drop" || !event.payload.paths.length || !composerDockElement) return;
+        const scale = window.devicePixelRatio || 1;
+        const x = event.payload.position.x / scale;
+        const y = event.payload.position.y / scale;
+        const bounds = composerDockElement.getBoundingClientRect();
+        if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return;
+        createPendingMedia(event.payload.paths[0]);
+      });
     })();
 
     return () => {
       clearTimeout(readTimer);
       unlisten();
       unlistenTranscode();
+      unlistenDrop();
     };
+  });
+
+  $effect(() => {
+    const roomIds = $shellChats
+      .filter((room) => room.joined && room.kind === "room" && !room.roomId.startsWith("virtual:"))
+      .map((room) => room.roomId);
+    const key = [...roomIds].sort().join("\n");
+    if (!key) {
+      prefetchedPinnedRoomsKey = "";
+      return;
+    }
+    if (key === prefetchedPinnedRoomsKey) return;
+    prefetchedPinnedRoomsKey = key;
+    void matrixPrefetchPinnedMessageContexts(roomIds);
   });
 
   $effect(() => {
@@ -628,23 +669,46 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
     return "m.file";
   }
 
+  async function validatePendingMedia(filePath: string) {
+    if (pendingMedia?.filePath !== filePath) return;
+    pendingMedia = { ...pendingMedia, checkingLimit: true, limitError: "" };
+    try {
+      const [fileSize, maxUploadSize] = await Promise.all([
+        matrixGetFileSize(filePath),
+        matrixGetUploadLimit(),
+      ]);
+      if (pendingMedia?.filePath !== filePath) return;
+      pendingMedia = { ...pendingMedia, fileSize, maxUploadSize, checkingLimit: false };
+      mediaErrorMessage = fileSize > maxUploadSize
+        ? `This file is larger than this homeserver’s ${formatFileSize(maxUploadSize)} upload limit.`
+        : "";
+    } catch (error) {
+      if (pendingMedia?.filePath !== filePath) return;
+      pendingMedia = {
+        ...pendingMedia,
+        checkingLimit: false,
+        limitError: error instanceof Error ? error.message : "Could not check the homeserver upload limit.",
+      };
+      mediaErrorMessage = pendingMedia.limitError;
+    }
+  }
+
   function createPendingMedia(filePath: string) {
     const messageType = detectMediaKind(filePath);
     pendingMedia = {
       filePath,
       fileName: filePath.split(/[\\/]/).pop() || "attachment",
       fileSize: null,
+      maxUploadSize: null,
+      checkingLimit: true,
+      limitError: "",
       messageType,
       compressMedia: messageType !== "m.video",
     };
-    void matrixGetFileSize(filePath).then((fileSize) => {
-      if (pendingMedia?.filePath === filePath) {
-        pendingMedia = { ...pendingMedia, fileSize };
-      }
-    }).catch(() => undefined);
     mediaCaption = "";
     mediaEmojiPickerOpen = false;
     mediaErrorMessage = "";
+    void validatePendingMedia(filePath);
   }
 
   function fileExtension(fileName: string): string {
@@ -739,44 +803,77 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
     };
   });
 
-  async function sendPendingMedia() {
-    if (!pendingMedia || sendingMedia || !$shellSelectedRoomId) {
+  async function sendPendingMedia(retryLocalId?: string) {
+    const retryDraft = retryLocalId ? mediaDraftsByLocalId.get(retryLocalId) : undefined;
+    const currentPendingMedia = pendingMedia;
+    const roomId = retryDraft?.roomId ?? $shellSelectedRoomId;
+    const mediaDraft = retryDraft ?? (currentPendingMedia && roomId ? {
+      filePath: currentPendingMedia.filePath,
+      compressMedia: currentPendingMedia.compressMedia,
+      caption: mediaCaption.trim(),
+      roomId,
+    } : null);
+    if (!mediaDraft || sendingMedia || !roomId) {
       return;
     }
 
-    const mediaDraft = pendingMedia;
+    if (!retryDraft && currentPendingMedia?.checkingLimit) return;
+    if (!retryDraft && currentPendingMedia?.limitError) {
+      mediaErrorMessage = currentPendingMedia.limitError;
+      return;
+    }
+    if (!retryDraft && currentPendingMedia && !currentPendingMedia.compressMedia && currentPendingMedia.fileSize !== null && currentPendingMedia.maxUploadSize !== null && currentPendingMedia.fileSize > currentPendingMedia.maxUploadSize) {
+      mediaErrorMessage = `This file is larger than this homeserver’s ${formatFileSize(currentPendingMedia.maxUploadSize)} upload limit.`;
+      return;
+    }
+
     activeMediaFilePath = mediaDraft.filePath;
     mediaTranscodeProgress = {
-      roomId: $shellSelectedRoomId,
+      roomId,
       filePath: mediaDraft.filePath,
       stage: mediaDraft.compressMedia ? "preparing" : "uploading",
       progress: 0,
       hardwareMode: "",
     };
-    const optimistic = buildOptimisticMediaMessage();
-    const localId = optimistic.localId;
+    const optimistic = retryLocalId ? null : buildOptimisticMediaMessage();
+    const localId = retryLocalId ?? optimistic?.localId;
 
     if (!localId) {
       return;
     }
 
-    messages = [...messages, optimistic];
-    queuePinTimelineToBottom($shellSelectedRoomId, { force: true });
+    if (optimistic) {
+      messages = [...messages, optimistic];
+      mediaDraftsByLocalId.set(localId, {
+        filePath: mediaDraft.filePath,
+        compressMedia: mediaDraft.compressMedia,
+        caption: mediaCaption.trim(),
+        roomId,
+      });
+      queuePinTimelineToBottom(roomId, { force: true });
+    } else {
+      messages = messages.map((message) => message.localId === localId
+        ? { ...message, sendState: "sending", sendError: undefined }
+        : message);
+    }
 
     sendingMedia = true;
     mediaErrorMessage = "";
 
     try {
       await matrixSendMediaFile({
-        roomId: $shellSelectedRoomId,
+        roomId,
         filePath: mediaDraft.filePath,
         compressMedia: mediaDraft.compressMedia,
-        caption: mediaCaption.trim() || null,
+        caption: mediaDraft.caption || null,
       });
 
-      pendingMedia = null;
-      mediaCaption = "";
-      mediaEmojiPickerOpen = false;
+      mediaDraftsByLocalId.delete(localId);
+      if (pendingMedia?.filePath === mediaDraft.filePath) {
+        pendingMedia = null;
+        mediaCaption = "";
+        mediaEmojiPickerOpen = false;
+      }
       mediaTranscodeProgress = null;
 
       messages = messages.map((message) => {
@@ -797,9 +894,12 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
 
       if (cancelled) {
         mediaErrorMessage = "";
+        mediaDraftsByLocalId.delete(localId);
+        void matrixRemovePastedFile(mediaDraft.filePath).catch(() => undefined);
         messages = messages.filter((message) => message.localId !== localId);
       } else {
-        mediaErrorMessage = errorText;
+        // Keep the caption/editor draft intact; the failed file bubble owns
+        // this error and exposes retry/remove actions.
         messages = messages.map((message) => {
           if (message.localId !== localId) {
             return message;
@@ -808,6 +908,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
           return {
             ...message,
             sendState: "failed",
+            sendError: errorText,
           };
         });
       }
@@ -825,6 +926,13 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
     const roomId = $shellSelectedRoomId;
     const mediaDraft = pendingMedia;
 
+    const failedLocalId = [...mediaDraftsByLocalId.entries()]
+      .find(([, draft]) => draft.filePath === mediaDraft.filePath)?.[0];
+    if (failedLocalId) {
+      messages = messages.filter((message) => message.localId !== failedLocalId);
+      mediaDraftsByLocalId.delete(failedLocalId);
+    }
+
     if (sendingMedia && roomId && mediaDraft.compressMedia && mediaDraft.messageType !== "m.file") {
       try {
         await matrixCancelMediaTranscode({
@@ -834,6 +942,10 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
       } catch {
         // Ignore cancellation command errors and close preview anyway.
       }
+    }
+
+    if (!sendingMedia) {
+      void matrixRemovePastedFile(mediaDraft.filePath).catch(() => undefined);
     }
 
     mediaErrorMessage = "";
@@ -1168,6 +1280,11 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
       return;
     }
 
+    if (mediaDraftsByLocalId.has(message.localId)) {
+      await sendPendingMedia(message.localId);
+      return;
+    }
+
     composerErrorMessage = "";
 
     messages = messages.map((timelineMessage) => {
@@ -1178,6 +1295,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
       return {
         ...timelineMessage,
         sendState: "sending",
+        sendError: undefined,
       };
     });
 
@@ -1194,6 +1312,19 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
     );
   }
 
+  function removeFailedMessage(message: TimelineMessage) {
+    if (!message.localId || message.sendState !== "failed") return;
+    const removedDraft = mediaDraftsByLocalId.get(message.localId);
+    mediaDraftsByLocalId.delete(message.localId);
+    if (removedDraft) void matrixRemovePastedFile(removedDraft.filePath).catch(() => undefined);
+    messages = messages.filter((candidate) => candidate.localId !== message.localId);
+    if (pendingMedia?.filePath === removedDraft?.filePath) {
+      pendingMedia = null;
+      mediaCaption = "";
+      mediaErrorMessage = "";
+    }
+  }
+
   function handleReplyToMessage(message: TimelineMessage) {
     if (!message.eventId) {
       return;
@@ -1201,6 +1332,21 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
 
     replyToMessage = message;
     composerFocusNonce += 1;
+  }
+
+  async function handleDeleteMessage(message: TimelineMessage) {
+    const roomId = $shellSelectedRoomId;
+    if (!roomId || !message.eventId || message.isDeleted || message.sender !== $shellCurrentUserId) return;
+    if (!window.confirm("Delete this message for everyone? This cannot be undone.")) return;
+
+    try {
+      await matrixRedactMessage({ roomId, eventId: message.eventId });
+      messages = messages.map((candidate) => candidate.eventId === message.eventId
+        ? { ...candidate, body: "", formattedBody: null, messageType: null, imageUrl: null, thumbnailUrl: null, reactions: [], customEmojis: [], isDeleted: true }
+        : candidate);
+    } catch (error) {
+      composerErrorMessage = error instanceof Error ? error.message : String(error);
+    }
   }
 
   /// Forward a message: pick the room it goes to, then send its text there.
@@ -1629,19 +1775,21 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
       {activeLoadKind}
       {streamMessageCount}
       error={errorMessage}
-      isSending={sendingMessage}
+      isSending={sendingMessage || sendingMedia}
       onTimelineElementChange={(element) => timelineElement = element}
       onScroll={handleTimelineScroll}
       onProgrammaticScroll={beginProgrammaticScroll}
       onOpenRoomSettings={(roomIdToOpen) => (roomSettingsDialogRoomId = roomIdToOpen)}
       onRetryMessage={retryMessage}
+      onRemoveFailedMessage={removeFailedMessage}
       onToggleReaction={handleToggleReaction}
       onReplyToMessage={handleReplyToMessage}
       onForwardMessage={handleForwardMessage}
+      onDeleteMessage={handleDeleteMessage}
       onLoadJumpContext={loadJumpContext}
     />
 
-    <div class="composer-dock">
+    <div class="composer-dock" bind:this={composerDockElement}>
       <MessageComposer
         draft={messageDraft}
         roomId={$shellSelectedRoomId}
@@ -1682,21 +1830,15 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
         onclick={handlePendingMediaBackdropClick}
         onkeydown={handlePendingMediaBackdropKeydown}
       >
-        <div class="max-h-[92vh] w-full overflow-y-auto bg-surface-100-900 shadow-2xl {pendingMedia.messageType === 'm.image' ? 'max-w-md rounded-[8px]' : pendingMedia.messageType === 'm.file' ? 'max-w-md rounded-[8px] border border-surface-300-700' : 'max-w-3xl rounded-2xl border border-surface-300-700'}">
-          <div class="flex items-center justify-between border-b border-surface-300-700 {pendingMedia.messageType === 'm.image' || pendingMedia.messageType === 'm.file' ? 'px-3 py-2' : 'px-5 py-4'}">
+        <div class="max-h-[92vh] w-full overflow-y-auto bg-surface-100-900 shadow-2xl {pendingMedia.messageType === 'm.file' ? 'max-w-md rounded-[8px] border border-surface-300-700' : 'max-w-md rounded-[8px]'}">
+          <div class="flex items-center justify-between border-b border-surface-300-700 px-3 py-2">
             <div>
-              <p class={pendingMedia.messageType === "m.video" ? "text-lg font-semibold text-surface-900-100" : "text-sm font-medium text-surface-900-100"}>{pendingMedia.messageType === "m.image" ? "Send image" : pendingMedia.messageType === "m.file" ? "Send file" : "Send video"}</p>
-              {#if pendingMedia.messageType === "m.video"}
-                <p class="text-sm text-surface-600-400">{pendingMedia.fileName}</p>
-              {/if}
+              <p class={"text-sm font-medium text-surface-900-100"}>{pendingMedia.messageType === "m.image" ? "Send image" : pendingMedia.messageType === "m.file" ? "Send file" : "Send video"}</p>
             </div>
-            {#if pendingMedia.messageType === "m.video"}
-              <button class="btn preset-outlined" type="button" onclick={cancelPendingMedia}>Cancel</button>
-            {/if}
           </div>
 
-          <div class={pendingMedia.messageType === "m.image" ? "flex flex-col gap-2 p-1" : pendingMedia.messageType === "m.file" ? "flex flex-col gap-3 px-1 py-2" : "grid gap-4 p-4 md:grid-cols-[minmax(0,1.25fr)_minmax(16rem,1fr)]"}>
-            <div class={pendingMedia.messageType === "m.image" ? "relative flex max-h-60 w-full items-center justify-center overflow-hidden rounded-[8px]" : pendingMedia.messageType === "m.file" ? "flex items-center gap-2" : "flex min-h-[12rem] items-center justify-center rounded-xl bg-surface-200-800 p-3"}>
+          <div class={pendingMedia.messageType === "m.file" ? "flex flex-col gap-3 px-1 py-2" : "flex flex-col gap-2 p-1"}>
+            <div class={pendingMedia.messageType === "m.file" ? "flex items-center gap-2" : "relative flex max-h-60 w-full items-center justify-center overflow-hidden rounded-[8px]"}>
               {#if pendingMedia.messageType === "m.image"}
                 <button
                   class="absolute right-1.5 top-1.5 z-10 grid size-7 place-items-center rounded-[6px] bg-black/45 text-lg leading-none text-white transition hover:bg-black/65"
@@ -1711,12 +1853,19 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                   class="block max-h-60 w-full object-contain"
                 />
               {:else if pendingMedia.messageType === "m.video"}
+                <button
+                  class="absolute right-1.5 top-1.5 z-10 grid size-7 place-items-center rounded-[6px] bg-black/45 text-lg leading-none text-white transition hover:bg-black/65"
+                  type="button"
+                  aria-label="Close video preview"
+                  title="Close"
+                  onclick={cancelPendingMedia}
+                >×</button>
                 <!-- svelte-ignore a11y_media_has_caption -->
                 <video
                   src={convertFileSrc(pendingMedia.filePath)}
                   controls
                   playsinline
-                  class="max-h-[38vh] w-full rounded-lg bg-black"
+                  class="block max-h-60 w-full rounded-[8px] bg-black object-contain"
                 ></video>
               {:else}
                 {@const badge = fileBadge(pendingMedia.fileName)}
@@ -1737,9 +1886,23 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
               {/if}
             </div>
 
-            <div class={pendingMedia.messageType === "m.image" ? "space-y-2" : pendingMedia.messageType === "m.file" ? "space-y-3" : "space-y-3 rounded-xl border border-surface-300-700 bg-surface-100-900 p-3"}>
+            <p class="px-2 text-xs text-surface-600-400">
+              {#if pendingMedia.checkingLimit}
+                Checking this homeserver’s upload limit…
+              {:else if pendingMedia.fileSize !== null && pendingMedia.maxUploadSize !== null}
+                {#if pendingMedia.fileSize > pendingMedia.maxUploadSize && pendingMedia.compressMedia}
+                  Original: {formatFileSize(pendingMedia.fileSize)}; compressed output will be checked before upload ({formatFileSize(pendingMedia.maxUploadSize)} maximum)
+                {:else}
+                  {formatFileSize(pendingMedia.fileSize)} of {formatFileSize(pendingMedia.maxUploadSize)} maximum
+                {/if}
+              {:else}
+                Upload limit unavailable
+              {/if}
+            </p>
+
+            <div class={pendingMedia.messageType === "m.file" ? "space-y-3" : "space-y-2"}>
               {#if pendingMedia.messageType !== "m.file"}
-                <label class={pendingMedia.messageType === "m.image" ? "flex items-center gap-2 px-1 text-sm" : "flex items-start gap-3 rounded-lg border border-surface-300-700 p-3"}>
+                <label class={"flex items-center gap-2 px-1 text-sm"}>
                   <input type="checkbox" bind:checked={pendingMedia.compressMedia} class="mt-0.5" />
                   <span class="font-medium">Compress before sending</span>
                   {#if pendingMedia.messageType !== "m.image"}
@@ -1781,10 +1944,10 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                     <button
                       type="button"
                       class="composer-send btn shrink-0"
-                      disabled={sendingMedia || !$shellSelectedRoomId}
-                      title="Send image"
-                      aria-label="Send image"
-                      onclick={sendPendingMedia}
+                      disabled={sendingMedia || !$shellSelectedRoomId || pendingMedia.checkingLimit || !!pendingMedia.limitError || (!pendingMedia.compressMedia && pendingMedia.fileSize !== null && pendingMedia.maxUploadSize !== null && pendingMedia.fileSize > pendingMedia.maxUploadSize)}
+                      title={pendingMedia.messageType === "m.video" ? "Send video" : "Send image"}
+                      aria-label={pendingMedia.messageType === "m.video" ? "Send video" : "Send image"}
+                      onclick={() => void sendPendingMedia()}
                     >
                       {#if sendingMedia}
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6 animate-spin" aria-hidden="true">
@@ -1798,7 +1961,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                       {/if}
                     </button>
                   </div>
-              {:else if pendingMedia.messageType === "m.file"}
+              {:else}
                 <div class="group mb-2 flex min-h-12 items-end gap-1 border-b-[1.5px] border-surface-500-500 px-1.5 focus-within:border-primary-500">
                   <div class="flex min-w-0 flex-1 flex-col">
                     <span class="pt-1 text-xs text-surface-600-400">Caption</span>
@@ -1830,10 +1993,10 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                   <button
                     type="button"
                     class="composer-send btn shrink-0"
-                    disabled={sendingMedia || !$shellSelectedRoomId}
-                    title="Send file"
-                    aria-label="Send file"
-                    onclick={sendPendingMedia}
+                    disabled={sendingMedia || !$shellSelectedRoomId || pendingMedia.checkingLimit || !!pendingMedia.limitError || (!pendingMedia.compressMedia && pendingMedia.fileSize !== null && pendingMedia.maxUploadSize !== null && pendingMedia.fileSize > pendingMedia.maxUploadSize)}
+                    title={pendingMedia.messageType === "m.video" ? "Send video" : "Send file"}
+                    aria-label={pendingMedia.messageType === "m.video" ? "Send video" : "Send file"}
+                    onclick={() => void sendPendingMedia()}
                   >
                     {#if sendingMedia}
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6 animate-spin" aria-hidden="true">
@@ -1847,20 +2010,6 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                     {/if}
                   </button>
                 </div>
-              {:else}
-                <label class="block space-y-1.5">
-                  <div class="relative">
-                    <textarea
-                      bind:this={mediaCaptionInput}
-                      bind:value={mediaCaption}
-                      rows="2"
-                      maxlength="2000"
-                      placeholder="Add a caption..."
-                      aria-label="Caption"
-                      class="w-full resize-y rounded-lg border border-surface-300-700 bg-surface-200-800 px-3 py-2 pr-12 text-sm text-surface-900-100 outline-none focus:border-primary-500"
-                    ></textarea>
-                  </div>
-                </label>
               {/if}
 
               {#if sendingMedia}
@@ -1906,19 +2055,12 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
               {#if mediaErrorMessage}
                 <div class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-700">
                   {mediaErrorMessage}
+                  {#if pendingMedia.limitError}
+                    <button type="button" class="ml-2 underline" onclick={() => void validatePendingMedia(pendingMedia.filePath)}>Retry limit check</button>
+                  {/if}
                 </div>
               {/if}
 
-              {#if pendingMedia.messageType === "m.video"}
-                <button
-                  type="button"
-                  class="btn preset-filled w-full"
-                  disabled={sendingMedia || !$shellSelectedRoomId}
-                  onclick={sendPendingMedia}
-                >
-                  {#if sendingMedia}Sending...{:else}Send file{/if}
-                </button>
-              {/if}
             </div>
           </div>
         </div>

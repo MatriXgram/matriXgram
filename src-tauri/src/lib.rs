@@ -57,6 +57,13 @@ pub fn run() {
             let handle = app.handle().clone();
             let paths = commands::resolve_paths(&handle)?;
             assets::initialize_media_cache_dir(paths.cache_dir());
+            if let Ok(limit) = std::fs::read_to_string(paths.data_file("media-cache-limit-bytes")) {
+                if let Ok(bytes) = limit.trim().parse::<u64>() {
+                    if (1024 * 1024 * 1024..=10 * 1024 * 1024 * 1024).contains(&bytes) {
+                        assets::set_media_cache_max_bytes(bytes);
+                    }
+                }
+            }
             // Media is disk-backed and disposable: the cache is trimmed to a
             // size budget rather than wiped, so images the user already saw
             // stay available after a restart.
@@ -189,8 +196,14 @@ pub fn run() {
             commands::chat::matrix_send_chat_message,
             commands::chat::matrix_send_media_file,
             commands::chat::matrix_get_file_size,
+            commands::chat::matrix_save_pasted_file,
+            commands::chat::matrix_remove_pasted_file,
+            commands::chat::matrix_get_upload_limit,
             commands::chat::matrix_cancel_media_transcode,
             commands::chat::matrix_toggle_reaction,
+            commands::chat::matrix_redact_message,
+            commands::chat::matrix_get_pinned_events,
+            commands::chat::matrix_set_message_pinned,
             commands::chat::matrix_copy_image_to_clipboard,
             commands::chat::matrix_read_clipboard_text,
             commands::chat::matrix_resolve_video_url,
@@ -204,6 +217,9 @@ pub fn run() {
             commands::verification::matrix_accept_sas_verification,
             commands::verification::matrix_confirm_sas_verification,
             commands::theme::matrix_load_desktop_theme,
+            commands::settings::matrix_get_media_cache_info,
+            commands::settings::matrix_set_media_cache_limit,
+            commands::settings::matrix_clear_media_cache,
             commands::settings::matrix_get_profile,
             commands::settings::matrix_set_display_name,
             commands::settings::matrix_set_avatar,

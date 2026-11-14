@@ -3,7 +3,7 @@
   import type { MatrixChatSummary } from "$lib/chats/types";
   import { shellErrorMessage } from "$lib/chats/shell";
   import { toChatListTime } from "$lib/components/messaging/shared";
-  import { RoomAvatar, RoomSettingsDialog, isVirtualRoomId, roomImageCache } from "../shared";
+  import { RoomAvatar, RoomSettingsDialog, isVirtualRoomId, roomImageCache, roomImageChangeEpoch } from "../shared";
 
   interface Props {
     room: MatrixChatSummary;
@@ -42,14 +42,16 @@
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
 
   $effect(() => {
-    lazyImageUrl = room.imageUrl;
+    const cacheEpoch = roomImageChangeEpoch.current;
+    lazyImageUrl = cacheEpoch === 0 ? room.imageUrl : undefined;
 
-    if (room.imageUrl) {
+    if (room.imageUrl && cacheEpoch === 0) {
       roomImageCache.prime(room.roomId, room.imageUrl);
     }
   });
 
   $effect(() => {
+    void roomImageChangeEpoch.current;
     if (lazyImageUrl || isVirtualRoomId(room.roomId)) {
       return;
     }

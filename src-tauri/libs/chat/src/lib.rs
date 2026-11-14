@@ -12,6 +12,7 @@ pub mod persistence;
 pub mod profiles;
 pub mod reactions;
 pub mod receive;
+pub mod redaction;
 pub mod send;
 
 pub use commands::{
@@ -22,4 +23,5 @@ pub use commands::{
 pub use media::cache_mxc_media_to_local_path;
 pub use persistence::store_initial_room_messages;
 pub use receive::fetch_room_messages_from_client;
+pub use redaction::redact_message_from_client;
 pub use send::MediaTranscodeCancellationState;

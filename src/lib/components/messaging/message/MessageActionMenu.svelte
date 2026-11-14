@@ -9,10 +9,13 @@
     onForward?: (message: TimelineMessage) => void;
     onCopy?: (message: TimelineMessage) => void;
     onCopyImage?: (message: TimelineMessage) => void;
+    onDelete?: (message: TimelineMessage) => void;
+    isPinned?: boolean;
+    onTogglePinned?: (message: TimelineMessage, pinned: boolean) => void;
     onClose?: () => void;
   }
 
-  let { message, position, onReply, onForward, onCopy, onCopyImage, onClose }: Props = $props();
+  let { message, position, onReply, onForward, onCopy, onCopyImage, onDelete, isPinned = false, onTogglePinned, onClose }: Props = $props();
 
   $effect(() => {
     if (!position) {
@@ -47,7 +50,7 @@
 {#if position}
   <div
     data-action-menu
-    class="menu-pop-in fixed z-50 min-w-36 overflow-hidden rounded-md border border-hairline bg-panel/85 py-1 shadow-lg backdrop-blur-md"
+    class="menu-pop-in fixed z-50 min-w-44 overflow-hidden rounded-md border border-hairline bg-panel/85 py-1 shadow-lg backdrop-blur-md"
     style={`left: ${position.x}px; top: ${position.y}px; transform-origin: ${position.originY ?? "bottom"} ${position.originX ?? "left"};`}
     role="menu"
     aria-label="Message actions"
@@ -153,6 +156,37 @@
           <polyline points="21 15 16 10 5 21" />
         </svg>
         Copy image
+      </button>
+    {/if}
+    {#if message.eventId && onTogglePinned}
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:bg-hover"
+        role="menuitem"
+        onclick={() => {
+          onTogglePinned?.(message, !isPinned);
+          onClose?.();
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 shrink-0 text-secondary" aria-hidden="true"><path d="M9 3h6l-.5 5 3 3v2H6v-2l3-3-.5-5Z" /><path d="M12 13v8" /></svg>
+        {isPinned ? "Unpin message" : "Pin message"}
+      </button>
+    {/if}
+    {#if onDelete}
+      <div class="my-1 border-t border-hairline"></div>
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] text-danger hover:bg-danger/10"
+        role="menuitem"
+        onclick={() => {
+          onDelete?.(message);
+          onClose?.();
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 shrink-0" aria-hidden="true">
+          <path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/>
+        </svg>
+        Delete for everyone
       </button>
     {/if}
   </div>

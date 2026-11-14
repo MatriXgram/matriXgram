@@ -139,6 +139,64 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             continue;
         }
 
+        if let Some(change) = parse_membership_change(&event) {
+            let actor_display_name = match sender_display_names.get(&change.actor) {
+                Some(cached) => cached.clone(),
+                None => {
+                    let resolved =
+                        resolve_sender_display_name(client, room_id, &change.actor).await;
+                    sender_display_names.insert(change.actor.clone(), resolved.clone());
+                    resolved
+                }
+            }
+            .unwrap_or_else(|| localpart(&change.actor));
+            let body = match change.action {
+                "joined" => format!("{} joined the room", change.target_display_name),
+                "left" => format!("{} left the room", change.target_display_name),
+                "removed" => format!(
+                    "{} was removed by {}",
+                    change.target_display_name, actor_display_name
+                ),
+                "banned" => format!(
+                    "{} was banned by {}",
+                    change.target_display_name, actor_display_name
+                ),
+                _ => continue,
+            };
+
+            messages.push(MatrixChatMessage {
+                event_id: event
+                    .get("event_id")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                in_reply_to_event_id: None,
+                sender: change.target_user_id,
+                timestamp: event.get("origin_server_ts").and_then(Value::as_u64),
+                body,
+                formatted_body: None,
+                message_type: Some(String::from("m.room.member")),
+                image_url: None,
+                image_width: None,
+                image_height: None,
+                thumbnail_url: None,
+                custom_emojis: Vec::new(),
+                reactions: Vec::new(),
+                encrypted: false,
+                decryption_status: MatrixMessageDecryptionStatus::Plaintext,
+                verification_status: MatrixMessageVerificationStatus::Unknown,
+                sender_display_name: Some(change.target_display_name),
+                edited_at: None,
+                is_deleted: false,
+                thread_root_id: None,
+                thread_reply_count: 0,
+                mentions_me: false,
+                is_sticker: false,
+                is_voice: false,
+                audio_duration_ms: None,
+            });
+            continue;
+        }
+
         if let Some(parsed) = parse_timeline_message(&event, decryption_status, verification_status)
         {
             let mut custom_emojis = Vec::with_capacity(parsed.custom_emojis.len());
@@ -284,6 +342,76 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
     apply_reactions(&mut messages, reactions_by_target);
 
     (messages, had_utd)
+}
+
+struct ParsedMembershipChange {
+    actor: String,
+    target_user_id: String,
+    target_display_name: String,
+    action: &'static str,
+}
+
+fn parse_membership_change(event: &Value) -> Option<ParsedMembershipChange> {
+    if event.get("type").and_then(Value::as_str) != Some("m.room.member") {
+        return None;
+    }
+
+    let actor = event.get("sender").and_then(Value::as_str)?;
+    let target = event.get("state_key").and_then(Value::as_str)?;
+    let content = event.get("content")?;
+    let membership = content.get("membership").and_then(Value::as_str)?;
+    let previous_membership = event
+        .pointer("/unsigned/prev_content/membership")
+        .or_else(|| event.pointer("/prev_content/membership"))
+        .and_then(Value::as_str);
+
+    let action = match membership {
+        "join" if previous_membership != Some("join") => "joined",
+        "leave" if previous_membership != Some("leave") => {
+            if actor == target {
+                "left"
+            } else {
+                "removed"
+            }
+        }
+        "ban" if previous_membership != Some("ban") => "banned",
+        _ => return None,
+    };
+
+    let target_display_name = content
+        .get("displayname")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| {
+            event
+                .pointer("/unsigned/prev_content/displayname")
+                .and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+        })
+        .or_else(|| {
+            event
+                .pointer("/prev_content/displayname")
+                .and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+        })
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| localpart(target));
+
+    Some(ParsedMembershipChange {
+        actor: actor.to_owned(),
+        target_user_id: target.to_owned(),
+        target_display_name,
+        action,
+    })
+}
+
+fn localpart(user_id: &str) -> String {
+    user_id
+        .split(':')
+        .next()
+        .unwrap_or(user_id)
+        .trim_start_matches('@')
+        .to_owned()
 }
 
 fn rewrite_formatted_body_custom_emoji(

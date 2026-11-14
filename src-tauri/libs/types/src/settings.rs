@@ -1,5 +1,34 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixMediaCacheInfoResponse {
+    pub used_bytes: u64,
+    pub max_bytes: u64,
+    pub image_bytes: u64,
+    pub video_bytes: u64,
+    pub other_bytes: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSetMediaCacheLimitRequest {
+    pub max_bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSetMediaCacheLimitResponse {
+    pub max_bytes: u64,
+    pub used_bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixClearMediaCacheResponse {
+    pub cleared_bytes: u64,
+    pub used_bytes: u64,
+}
 /// The signed-in user's profile fields.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +100,8 @@ pub struct MatrixRoomSettingsResponse {
     pub topic: Option<String>,
     pub canonical_alias: Option<String>,
     pub joined_members: u64,
+    /// Homeserver media repository limit, if the server exposes it.
+    pub max_upload_size: Option<u64>,
     /// The effective notification mode: the user-defined one when set, the
     /// room-type default otherwise. `None` when the room is not joined.
     pub notification_mode: Option<MatrixRoomNotificationMode>,

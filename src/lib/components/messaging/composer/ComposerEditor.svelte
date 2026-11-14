@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { matrixReadClipboardText } from "$lib/chats/api";
+  import { matrixReadClipboardText, matrixSavePastedFile } from "$lib/chats/api";
 
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
   import "prosemirror-view/style/prosemirror.css";
@@ -419,6 +419,24 @@
   }
 
   async function handleKeyboardPaste() {
+    try {
+      if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imageType = item.types.find((type) => type.startsWith("image/"));
+          if (!imageType) continue;
+          const blob = await item.getType(imageType);
+          const extension = imageType.split("/")[1]?.replace("jpeg", "jpg") ?? "png";
+          const fileName = `pasted-image.${extension}`;
+          const path = await matrixSavePastedFile(fileName, new Uint8Array(await blob.arrayBuffer()));
+          onPasteAttachmentPath?.(path);
+          return;
+        }
+      }
+    } catch {
+      // File paths copied from the desktop clipboard use the text fallback below.
+    }
+
     let clipboardText = "";
 
     try {

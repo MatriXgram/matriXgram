@@ -11,8 +11,11 @@ use types::chat::{
     MatrixCancelMediaTranscodeRequest, MatrixCancelMediaTranscodeResponse,
     MatrixChatMessageStreamEvent, MatrixCopyImageToClipboardRequest, MatrixDownloadFileRequest,
     MatrixDownloadFileResponse, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
-    MatrixGetEmojiPacksResponse, MatrixGetRoomMembersRequest, MatrixGetUserAvatarRequest,
-    MatrixGetUserAvatarResponse, MatrixReplyEventRequest, MatrixResolveVideoUrlRequest,
+    MatrixGetEmojiPacksResponse, MatrixGetPinnedEventsRequest, MatrixGetPinnedEventsResponse,
+    MatrixGetRoomMembersRequest, MatrixGetUploadLimitResponse,
+    MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse, MatrixRedactMessageRequest,
+    MatrixRedactMessageResponse, MatrixReplyEventRequest, MatrixResolveVideoUrlRequest,
+    MatrixSetMessagePinnedRequest, MatrixSetMessagePinnedResponse,
     MatrixResolveVideoUrlResponse, MatrixRoomMember, MatrixSendChatMessageRequest,
     MatrixSendChatMessageResponse, MatrixSendMediaFileRequest, MatrixSendMediaFileResponse,
     MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest,
@@ -25,6 +28,61 @@ pub fn matrix_get_file_size(file_path: String) -> Result<u64, String> {
     fs::metadata(&file_path)
         .map(|metadata| metadata.len())
         .map_err(|error| format!("Failed to read file metadata: {error}"))
+}
+
+#[tauri::command]
+pub fn matrix_save_pasted_file(file_name: String, bytes: Vec<u8>) -> Result<String, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let extension = std::path::Path::new(&file_name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| {
+            !extension.is_empty()
+                && extension.len() <= 8
+                && extension
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric())
+        })
+        .unwrap_or("png");
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("Failed to create a temporary file name: {error}"))?
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("matrixgram-pasted-{unique}.{extension}"));
+    fs::write(&path, bytes).map_err(|error| format!("Failed to save pasted file: {error}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn matrix_remove_pasted_file(file_path: String) -> Result<(), String> {
+    let temp_dir = std::env::temp_dir();
+    let path = std::path::Path::new(&file_path);
+    let is_app_temp_file = path.parent() == Some(temp_dir.as_path())
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("matrixgram-pasted-"));
+    if is_app_temp_file && path.exists() {
+        fs::remove_file(path).map_err(|error| format!("Failed to remove pasted file: {error}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn matrix_get_upload_limit(
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<MatrixGetUploadLimitResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    let size = client
+        .load_or_fetch_max_upload_size()
+        .await
+        .map_err(|error| format!("Failed to read the homeserver upload limit: {error}"))?;
+    Ok(MatrixGetUploadLimitResponse {
+        max_upload_size: u64::from(size),
+    })
 }
 
 #[tauri::command]
@@ -342,6 +400,10 @@ pub async fn matrix_send_media_file(
     )
     .await;
 
+    if response.is_ok() {
+        let _ = matrix_remove_pasted_file(request.file_path.clone());
+    }
+
     // A failed media send still refreshes, exactly as a failed text send does:
     // the room may have received an echo, or the local view may have shown
     // something the server never accepted.
@@ -392,6 +454,82 @@ pub async fn matrix_toggle_reaction(
     let _ = room_update_trigger_state.enqueue_refresh(Some(room_id), true);
 
     Ok(response)
+}
+
+#[tauri::command]
+pub async fn matrix_redact_message(
+    request: MatrixRedactMessageRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<MatrixRedactMessageResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::redact_message_from_client(&client, &request.room_id, &request.event_id).await?;
+
+    if let Err(error) = app_db
+        .mark_message_redacted(&request.room_id, &request.event_id)
+        .await
+    {
+        log::warn!(
+            "Message was redacted on the server, but the local cache could not be updated: {error}"
+        );
+        if let Err(clear_error) = app_db.clear_room_message_cache(&request.room_id).await {
+            log::error!("Could not clear the stale room cache after redaction: {clear_error}");
+        }
+    }
+    let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id), true);
+    Ok(MatrixRedactMessageResponse { redacted: true })
+}
+
+#[tauri::command]
+pub async fn matrix_get_pinned_events(
+    request: MatrixGetPinnedEventsRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<MatrixGetPinnedEventsResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    let room_id = protocol::parse_room_id(&request.room_id)?;
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| format!("Room {room_id} is not available in current session"))?;
+    let event_ids = room
+        .load_pinned_events()
+        .await
+        .map_err(|error| format!("Failed to load pinned messages: {error}"))?
+        .unwrap_or_default()
+        .into_iter()
+        .map(|event_id| event_id.to_string())
+        .collect();
+    Ok(MatrixGetPinnedEventsResponse { event_ids })
+}
+
+#[tauri::command]
+pub async fn matrix_set_message_pinned(
+    request: MatrixSetMessagePinnedRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+    room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
+) -> Result<MatrixSetMessagePinnedResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    let room_id = protocol::parse_room_id(&request.room_id)?;
+    let event_id = protocol::parse_event_id(&request.event_id)?;
+    let room = client
+        .get_room(&room_id)
+        .ok_or_else(|| format!("Room {room_id} is not available in current session"))?;
+    if request.pinned {
+        room.pin_event(&event_id)
+            .await
+            .map_err(|error| format!("Failed to pin message: {error}"))?;
+    } else {
+        room.unpin_event(&event_id)
+            .await
+            .map_err(|error| format!("Failed to unpin message: {error}"))?;
+    }
+    let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id), true);
+    Ok(MatrixSetMessagePinnedResponse { pinned: request.pinned })
 }
 
 #[tauri::command]

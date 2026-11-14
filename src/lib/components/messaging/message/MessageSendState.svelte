@@ -5,12 +5,14 @@
     message: TimelineMessage;
     isSending?: boolean;
     onRetry?: RetryMessageHandler;
+    onRemove?: RetryMessageHandler;
   }
 
   let {
     message,
     isSending = false,
     onRetry,
+    onRemove,
   }: Props = $props();
 </script>
 
@@ -30,7 +32,7 @@
       <line x1="12" y1="8" x2="12" y2="12" />
       <line x1="12" y1="16" x2="12.01" y2="16" />
     </svg>
-    <span>Failed to send</span>
+    <span class="max-w-xs truncate" title={message.sendError ?? "Failed to send"}>{message.sendError ?? "Failed to send"}</span>
     <button
       type="button"
       class="btn btn-xs"
@@ -39,5 +41,8 @@
     >
       Retry
     </button>
+    {#if onRemove}
+      <button type="button" class="btn btn-xs" onclick={() => onRemove?.(message)} disabled={isSending}>Remove</button>
+    {/if}
   </div>
 {/if}

@@ -9,5 +9,8 @@ export function firstUnreadIndex(messages: MatrixChatMessage[], marker: string |
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].sender !== userId && --remaining <= 0) return i;
   }
-  return messages.findIndex(m => m.sender !== userId);
+  // The server unread count can exceed the currently loaded timeline. In that
+  // case the oldest loaded message is not a reliable unread boundary; let the
+  // caller open at the latest message instead of jumping to the start of a day.
+  return -1;
 }

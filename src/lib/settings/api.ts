@@ -1,6 +1,10 @@
 import { normalizeImageUrl } from "../chats/media";
 import { invokeMatrixCommand } from "../command-client";
 import type {
+	MatrixClearMediaCacheResponse,
+	MatrixMediaCacheInfoResponse,
+	MatrixSetMediaCacheLimitRequest,
+	MatrixSetMediaCacheLimitResponse,
 	MatrixAddKeywordRequest,
 	MatrixAddKeywordResponse,
 	MatrixAddRoomKeywordRequest,
@@ -40,6 +44,21 @@ import type {
 	MatrixSetRoomTagResponse,
 } from "./types";
 
+export async function matrixGetMediaCacheInfo(): Promise<MatrixMediaCacheInfoResponse> {
+	return invokeMatrixCommand<MatrixMediaCacheInfoResponse>("matrix_get_media_cache_info");
+}
+
+export async function matrixSetMediaCacheLimit(
+	input: MatrixSetMediaCacheLimitRequest,
+): Promise<MatrixSetMediaCacheLimitResponse> {
+	return invokeMatrixCommand<MatrixSetMediaCacheLimitResponse>("matrix_set_media_cache_limit", {
+		request: input,
+	});
+}
+
+export async function matrixClearMediaCache(): Promise<MatrixClearMediaCacheResponse> {
+	return invokeMatrixCommand<MatrixClearMediaCacheResponse>("matrix_clear_media_cache");
+}
 export async function matrixGetProfile(): Promise<MatrixProfileResponse> {
 	const profile = await invokeMatrixCommand<MatrixProfileResponse>("matrix_get_profile");
 	return { ...profile, avatarUrl: normalizeImageUrl(profile.avatarUrl) };

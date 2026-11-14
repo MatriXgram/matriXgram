@@ -4,6 +4,7 @@ import type {
   MatrixChatMessage,
   MatrixChatSummary,
   MatrixGetEmojiPacksResponse,
+  MatrixGetUploadLimitResponse,
   MatrixGetChatNavigationRequest,
   MatrixGetChatNavigationResponse,
   MatrixGetChatsResponse,
@@ -24,6 +25,12 @@ import type {
   MatrixStreamChatMessagesResponse,
   MatrixToggleReactionRequest,
   MatrixToggleReactionResponse,
+  MatrixRedactMessageRequest,
+  MatrixRedactMessageResponse,
+  MatrixGetPinnedEventsRequest,
+  MatrixGetPinnedEventsResponse,
+  MatrixSetMessagePinnedRequest,
+  MatrixSetMessagePinnedResponse,
   MatrixSetRootSpaceOrderRequest,
   MatrixSetRootSpaceOrderResponse,
   MatrixCopyImageToClipboardRequest,
@@ -154,6 +161,22 @@ export async function matrixGetFileSize(filePath: string): Promise<number> {
   return invokeMatrixCommand<number>("matrix_get_file_size", { filePath });
 }
 
+export async function matrixGetUploadLimit(): Promise<number> {
+  const response = await invokeMatrixCommand<MatrixGetUploadLimitResponse>("matrix_get_upload_limit");
+  return response.maxUploadSize;
+}
+
+export async function matrixSavePastedFile(fileName: string, bytes: Uint8Array): Promise<string> {
+  return invokeMatrixCommand<string>("matrix_save_pasted_file", {
+    fileName,
+    bytes: Array.from(bytes),
+  });
+}
+
+export async function matrixRemovePastedFile(filePath: string): Promise<void> {
+  return invokeMatrixCommand<void>("matrix_remove_pasted_file", { filePath });
+}
+
 export async function matrixCancelMediaTranscode(
   input: MatrixCancelMediaTranscodeRequest,
 ): Promise<MatrixCancelMediaTranscodeResponse> {
@@ -168,6 +191,71 @@ export async function matrixToggleReaction(
   return invokeMatrixCommand<MatrixToggleReactionResponse>("matrix_toggle_reaction", {
     request: input,
   });
+}
+
+export async function matrixRedactMessage(
+  input: MatrixRedactMessageRequest,
+): Promise<MatrixRedactMessageResponse> {
+  return invokeMatrixCommand<MatrixRedactMessageResponse>("matrix_redact_message", {
+    request: input,
+  });
+}
+
+const pinnedEventsCache = new Map<string, { promise: Promise<MatrixGetPinnedEventsResponse>; expiresAt: number }>();
+export async function matrixGetPinnedEvents(
+  input: MatrixGetPinnedEventsRequest,
+): Promise<MatrixGetPinnedEventsResponse> {
+  const cached = pinnedEventsCache.get(input.roomId);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const promise = invokeMatrixCommand<MatrixGetPinnedEventsResponse>("matrix_get_pinned_events", {
+    request: input,
+  });
+  pinnedEventsCache.set(input.roomId, { promise, expiresAt: Date.now() + 60_000 });
+  void promise.catch(() => pinnedEventsCache.delete(input.roomId));
+  return promise;
+}
+
+export async function matrixPrefetchPinnedMessageContexts(roomIds: string[], concurrency = 3): Promise<void> {
+  const roomQueue = [...new Set(roomIds)];
+  const contextQueue: Array<{ roomId: string; eventId: string }> = [];
+  let roomIndex = 0;
+  const roomWorkers = Array.from({ length: Math.min(concurrency, roomQueue.length) }, async () => {
+    while (roomIndex < roomQueue.length) {
+      const roomId = roomQueue[roomIndex++];
+      if (!roomId) continue;
+      try {
+        const { eventIds } = await matrixGetPinnedEvents({ roomId });
+        contextQueue.push(...eventIds.map((eventId) => ({ roomId, eventId })));
+      } catch {
+        // Continue prefetching other rooms if one homeserver does not return pins.
+      }
+    }
+  });
+  await Promise.all(roomWorkers);
+
+  let contextIndex = 0;
+  const contextWorkers = Array.from({ length: Math.min(concurrency, contextQueue.length) }, async () => {
+    while (contextIndex < contextQueue.length) {
+      const item = contextQueue[contextIndex++];
+      if (!item) continue;
+      try {
+        await matrixGetReadContext(item.roomId, item.eventId);
+      } catch {
+        // A later jump retries the context request if background prefetch failed.
+      }
+    }
+  });
+  await Promise.all(contextWorkers);
+}
+
+export async function matrixSetMessagePinned(
+  input: MatrixSetMessagePinnedRequest,
+): Promise<MatrixSetMessagePinnedResponse> {
+  const response = await invokeMatrixCommand<MatrixSetMessagePinnedResponse>("matrix_set_message_pinned", {
+    request: input,
+  });
+  pinnedEventsCache.delete(input.roomId);
+  return response;
 }
 
 export async function matrixCopyImageToClipboard(
@@ -349,9 +437,22 @@ export function matrixGetRoomReadState(roomId: string) {
 export function matrixMarkRoomRead(request: import("./types").MatrixMarkReadRequest) {
   return invokeMatrixCommand<void>("matrix_mark_room_read", { request });
 }
+const readContextCache = new Map<string, { promise: Promise<import("./types").MatrixReadContextResponse>; expiresAt: number }>();
 export async function matrixGetReadContext(roomId: string, eventId: string) {
-  const result = await invokeMatrixCommand<import("./types").MatrixReadContextResponse>("matrix_get_read_context", { request: { roomId, eventId } });
-  return { ...result, messages: result.messages.map(normalizeMessageImageUrl) };
+  const key = `${roomId}\n${eventId}`;
+  const cached = readContextCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = invokeMatrixCommand<import("./types").MatrixReadContextResponse>("matrix_get_read_context", { request: { roomId, eventId } })
+    .then((result) => ({ ...result, messages: result.messages.map(normalizeMessageImageUrl) }));
+  readContextCache.set(key, { promise, expiresAt: Date.now() + 60_000 });
+  while (readContextCache.size > 128) {
+    const oldest = readContextCache.keys().next().value;
+    if (oldest === undefined) break;
+    readContextCache.delete(oldest);
+  }
+  void promise.catch(() => readContextCache.delete(key));
+  return promise;
 }
 const replyEventCache = new Map<string, Promise<MatrixChatMessage>>();
 export async function matrixGetReplyEvent(roomId: string, eventId: string) {

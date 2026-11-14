@@ -27,9 +27,13 @@
     imageMessages: TimelineMessage[];
     roomId: string;
     onRetry?: RetryMessageHandler;
+    onRemoveFailedMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
     onForward?: (message: TimelineMessage) => void;
+    onDeleteMessage?: (message: TimelineMessage) => void;
+    isPinned?: boolean;
+    onTogglePinned?: (message: TimelineMessage, pinned: boolean) => void;
     onCopy?: (message: TimelineMessage) => void;
     onJumpToMessage?: JumpToMessageHandler;
     repliedMessage?: TimelineMessage;
@@ -49,9 +53,13 @@
     imageMessages,
     roomId,
     onRetry,
+    onRemoveFailedMessage,
     onToggleReaction,
     onReplyToMessage,
     onForward,
+    onDeleteMessage,
+    isPinned = false,
+    onTogglePinned,
     onCopy,
     onJumpToMessage,
     repliedMessage,
@@ -138,8 +146,9 @@
     // above it. Flip the list if there is not enough room above the pointer.
     const barWidth = 250;
     const barHeight = 44;
-    const menuWidth = 150;
-    const menuHeight = 8 + (message.imageUrl ? 4 : 3) * 27;
+    const menuWidth = 176;
+    const canDelete = isOwn && !message.isDeleted && message.sendState !== "sending" && Boolean(message.eventId);
+    const menuHeight = 8 + ((message.imageUrl ? 4 : 3) + (canDelete ? 1 : 0)) * 27;
     // Anchor the pointer to the menu's bottom-left edge and expand upward.
     const menuX = event.clientX + menuWidth + 8 <= window.innerWidth
       ? event.clientX + 2
@@ -176,7 +185,7 @@
     actionMenuPosition = actionMenuPosition
       ? null
       : {
-          x: Math.max(8, (rect?.right ?? 0) - 150),
+          x: Math.max(8, (rect?.right ?? 0) - 176),
           y: Math.max(8, (rect?.bottom ?? 0) + 6),
           originX: "right",
           originY: "top",
@@ -260,26 +269,25 @@
 
       <MessageHeader {message} onOpenProfile={() => showProfile()} show={showSenderName && !isOwn && !grouped} />
 
-      <ReplyQuote {message} {roomId} {repliedMessage} {onJumpToMessage} />
-
-      <MessageBody
-        {message}
-        {imageMessages}
-        {roomId}
-        hasSenderHeader={showSenderName && !isOwn && !grouped}
-        onImageContextMenu={openImageOptionsMenuFromContext}
-      />
-
       {#if message.isDeleted}
-        <p class="text-[13px] italic opacity-70">Message deleted</p>
+        <p class="px-2 py-1 text-[13px] italic opacity-70">This message was deleted</p>
+      {:else}
+        <ReplyQuote {message} {roomId} {repliedMessage} {onJumpToMessage} />
+        <MessageBody
+          {message}
+          {imageMessages}
+          {roomId}
+          hasSenderHeader={showSenderName && !isOwn && !grouped}
+          onImageContextMenu={openImageOptionsMenuFromContext}
+        />
       {/if}
 
       <div
         class="message-meta mt-1 flex min-w-0 flex-nowrap items-center justify-between gap-2 pb-1 text-[10px] leading-tight"
       >
-        <MessageReactions {roomId} {message} {currentUserId} {pickerCustomEmoji} onToggleReaction={onToggleReaction} />
+        {#if !message.isDeleted}<MessageReactions {roomId} {message} {currentUserId} {pickerCustomEmoji} onToggleReaction={onToggleReaction} />{/if}
         <div class="flex min-w-0 shrink flex-nowrap items-center justify-end gap-1 opacity-70" class:opacity-100={isOwn}>
-          {#if message.editedAt}
+          {#if message.editedAt && !message.isDeleted}
             <span class="italic">edited</span>
           {/if}
           {#if message.threadReplyCount > 0}
@@ -314,7 +322,7 @@
       </div>
     </div>
 
-    <MessageSendState {message} {isSending} onRetry={onRetry} />
+    <MessageSendState {message} {isSending} onRetry={onRetry} onRemove={message.messageType && message.messageType !== "m.text" ? onRemoveFailedMessage : undefined} />
     <MessageEncryptionState {message} />
   </div>
 
@@ -333,6 +341,9 @@
     position={actionMenuPosition}
     onReply={onReplyToMessage}
     onForward={onForward}
+    onDelete={isOwn && !message.isDeleted && message.sendState !== "sending" && message.eventId ? onDeleteMessage : undefined}
+    {isPinned}
+    onTogglePinned={onTogglePinned}
     onCopy={(target) => (onCopy ? onCopy(target) : copyText(target))}
     onCopyImage={message.imageUrl ? copyImageToClipboard : undefined}
     onClose={() => (actionMenuPosition = null)}

@@ -608,9 +608,10 @@ impl AppDb {
                             sender_display_name,
                             image_width,
                             image_height,
+                            is_deleted,
                             updated_at
                         )
-                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, unixepoch())
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, unixepoch())
                         ",
                     )
                     .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
@@ -641,6 +642,7 @@ impl AppDb {
                             message.sender_display_name.as_deref(),
                             message.image_width.map(|value| value as i64),
                             message.image_height.map(|value| value as i64),
+                            if message.is_deleted { 1_i64 } else { 0_i64 },
                         ])
                         .map_err(|error| format!("Failed to insert message cache row: {error}"))?;
                 }
@@ -723,7 +725,7 @@ impl AppDb {
             let mut statement = connection
                 .prepare(
                     "
-                    SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, thumbnail_url, reactions, custom_emojis, encrypted, decryption_status, verification_status, sender_display_name, image_width, image_height
+                    SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, thumbnail_url, reactions, custom_emojis, encrypted, decryption_status, verification_status, sender_display_name, image_width, image_height, is_deleted
                     FROM message_cache
                     WHERE room_id = ?1
                     ORDER BY sequence ASC
@@ -763,6 +765,35 @@ impl AppDb {
                 next_from,
                 messages,
             }))
+        })
+        .await
+    }
+
+    pub async fn mark_message_redacted(&self, room_id: &str, event_id: &str) -> Result<(), String> {
+        let room_id = room_id.to_owned();
+        let event_id = event_id.to_owned();
+        self.run_blocking(move |connection| {
+            connection
+                .execute(
+                    "UPDATE message_cache SET body = '', formatted_body = NULL, message_type = NULL, image_url = NULL, thumbnail_url = NULL, reactions = '[]', custom_emojis = '[]', is_deleted = 1, updated_at = unixepoch() WHERE room_id = ?1 AND event_id = ?2",
+                    rusqlite::params![room_id, event_id],
+                )
+                .map_err(|error| format!("Failed to update redacted message cache: {error}"))?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn clear_room_message_cache(&self, room_id: &str) -> Result<(), String> {
+        let room_id = room_id.to_owned();
+        self.run_blocking(move |connection| {
+            connection
+                .execute("DELETE FROM message_cache WHERE room_id = ?1", [&room_id])
+                .map_err(|error| format!("Failed to clear room message cache: {error}"))?;
+            connection
+                .execute("DELETE FROM message_cache_state WHERE room_id = ?1", [&room_id])
+                .map_err(|error| format!("Failed to clear room message cache state: {error}"))?;
+            Ok(())
         })
         .await
     }
@@ -865,7 +896,10 @@ fn decode_cached_message(row: &rusqlite::Row<'_>) -> Result<MatrixChatMessage, S
             .get::<_, Option<String>>(14)
             .map_err(|error| format!("Failed to decode cached sender display name: {error}"))?,
         edited_at: None,
-        is_deleted: false,
+        is_deleted: row
+            .get::<_, i64>(17)
+            .map_err(|error| format!("Failed to decode cached redaction flag: {error}"))?
+            != 0,
         thread_root_id: None,
         thread_reply_count: 0,
         mentions_me: false,

@@ -90,8 +90,8 @@ pub struct MatrixChatMessage {
     /// Set when the message has been edited (`m.replace`).
     #[serde(default)]
     pub edited_at: Option<u64>,
-    /// Set when the message has been redacted: the body is kept so the UI can
-    /// render "message deleted" in place of the original text.
+    /// Set when the message has been redacted so the UI can replace its body
+    /// with a deleted-message notice.
     #[serde(default)]
     pub is_deleted: bool,
     /// Root event id when the message belongs to a thread (`m.thread`).
@@ -174,6 +174,45 @@ pub struct MatrixSendChatMessageRequest {
     /// Matrix user IDs selected from the room mention picker.
     #[serde(default)]
     pub mentioned_user_ids: Vec<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixRedactMessageRequest {
+    pub room_id: String,
+    pub event_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixRedactMessageResponse {
+    pub redacted: bool,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetPinnedEventsRequest {
+    pub room_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetPinnedEventsResponse {
+    pub event_ids: Vec<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSetMessagePinnedRequest {
+    pub room_id: String,
+    pub event_id: String,
+    pub pinned: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixSetMessagePinnedResponse {
+    pub pinned: bool,
 }
 
 #[derive(Deserialize)]
@@ -292,6 +331,12 @@ pub struct MatrixGetUserAvatarResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixGetEmojiPacksResponse {
     pub custom_emoji: Vec<MatrixPickerCustomEmoji>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetUploadLimitResponse {
+    pub max_upload_size: u64,
 }
 
 #[derive(Serialize)]

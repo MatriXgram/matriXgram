@@ -164,6 +164,33 @@ export interface MatrixSendChatMessageRequest {
   mentionedUserIds: string[];
 }
 
+export interface MatrixRedactMessageRequest {
+  roomId: string;
+  eventId: string;
+}
+
+export interface MatrixRedactMessageResponse {
+  redacted: boolean;
+}
+
+export interface MatrixGetPinnedEventsRequest {
+  roomId: string;
+}
+
+export interface MatrixGetPinnedEventsResponse {
+  eventIds: string[];
+}
+
+export interface MatrixSetMessagePinnedRequest {
+  roomId: string;
+  eventId: string;
+  pinned: boolean;
+}
+
+export interface MatrixSetMessagePinnedResponse {
+  pinned: boolean;
+}
+
 export interface MatrixSendMediaFileRequest {
   roomId: string;
   filePath: string;
@@ -245,6 +272,10 @@ export interface MatrixGetUserAvatarResponse {
 
 export interface MatrixGetEmojiPacksResponse {
   customEmoji: MatrixPickerCustomEmoji[];
+}
+
+export interface MatrixGetUploadLimitResponse {
+  maxUploadSize: number;
 }
 
 export interface MatrixUserProfileResponse {
@@ -419,6 +450,28 @@ export interface MatrixRoomSyncStatusEvent {
   error?: string | null;
 }
 
+export interface MatrixMediaCacheInfoResponse {
+  usedBytes: number;
+  maxBytes: number;
+  imageBytes: number;
+  videoBytes: number;
+  otherBytes: number;
+}
+
+export interface MatrixSetMediaCacheLimitRequest {
+  maxBytes: number;
+}
+
+export interface MatrixSetMediaCacheLimitResponse {
+  maxBytes: number;
+  usedBytes: number;
+}
+
+export interface MatrixClearMediaCacheResponse {
+  clearedBytes: number;
+  usedBytes: number;
+}
+
 export interface MatrixProfileResponse {
   userId: string;
   displayName?: string | null;
@@ -466,6 +519,7 @@ export interface MatrixRoomSettingsResponse {
   topic?: string | null;
   canonicalAlias?: string | null;
   joinedMembers: number;
+  maxUploadSize?: number | null;
   notificationMode?: MatrixRoomNotificationMode | null;
   notificationModeUserDefined: boolean;
   isFavourite: boolean;

@@ -4,6 +4,8 @@ export {
   roomImageCache,
   senderAvatarCache,
   avatarChangeEpoch,
+  roomImageChangeEpoch,
+  clearImageCaches,
   invalidateSenderAvatar,
 } from "./image-cache.svelte";
 export {

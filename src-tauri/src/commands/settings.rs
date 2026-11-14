@@ -1,7 +1,7 @@
 //! Settings command adapters: profile (display name, avatar) and password
 //! change. Delegates to the `settings` crate.
 
-use std::sync::Arc;
+use std::{fs, sync::Arc};
 
 use tauri::State;
 
@@ -11,18 +11,67 @@ use types::event_sink::EventSink;
 use types::settings::{
     MatrixAddKeywordRequest, MatrixAddKeywordResponse, MatrixAddRoomKeywordRequest,
     MatrixAddRoomKeywordResponse, MatrixChangePasswordRequest, MatrixChangePasswordResponse,
-    MatrixGetRoomKeywordsRequest, MatrixGetRoomSettingsRequest, MatrixKeywordsResponse,
-    MatrixLeaveRoomRequest, MatrixLeaveRoomResponse, MatrixNotificationDefaultsResponse,
-    MatrixProfileResponse, MatrixRemoveAvatarRequest, MatrixRemoveAvatarResponse,
-    MatrixRemoveKeywordRequest, MatrixRemoveKeywordResponse, MatrixRemoveRoomKeywordRequest,
-    MatrixRemoveRoomKeywordResponse, MatrixRemoveRoomTagRequest, MatrixRemoveRoomTagResponse,
-    MatrixRoomKeywordsResponse, MatrixRoomSettingsResponse, MatrixSetAvatarRequest,
-    MatrixSetAvatarResponse, MatrixSetDisplayNameRequest, MatrixSetDisplayNameResponse,
-    MatrixSetNotificationDefaultRequest, MatrixSetNotificationDefaultResponse,
-    MatrixSetRoomFlagsRequest, MatrixSetRoomFlagsResponse, MatrixSetRoomNotificationModeRequest,
-    MatrixSetRoomNotificationModeResponse, MatrixSetRoomTagRequest, MatrixSetRoomTagResponse,
+    MatrixClearMediaCacheResponse, MatrixGetRoomKeywordsRequest, MatrixGetRoomSettingsRequest,
+    MatrixKeywordsResponse, MatrixLeaveRoomRequest, MatrixLeaveRoomResponse,
+    MatrixMediaCacheInfoResponse, MatrixNotificationDefaultsResponse, MatrixProfileResponse,
+    MatrixRemoveAvatarRequest, MatrixRemoveAvatarResponse, MatrixRemoveKeywordRequest,
+    MatrixRemoveKeywordResponse, MatrixRemoveRoomKeywordRequest, MatrixRemoveRoomKeywordResponse,
+    MatrixRemoveRoomTagRequest, MatrixRemoveRoomTagResponse, MatrixRoomKeywordsResponse,
+    MatrixRoomSettingsResponse, MatrixSetAvatarRequest, MatrixSetAvatarResponse,
+    MatrixSetDisplayNameRequest, MatrixSetDisplayNameResponse, MatrixSetMediaCacheLimitRequest,
+    MatrixSetMediaCacheLimitResponse, MatrixSetNotificationDefaultRequest,
+    MatrixSetNotificationDefaultResponse, MatrixSetRoomFlagsRequest, MatrixSetRoomFlagsResponse,
+    MatrixSetRoomNotificationModeRequest, MatrixSetRoomNotificationModeResponse,
+    MatrixSetRoomTagRequest, MatrixSetRoomTagResponse,
 };
 use types::{Paths, RoomUpdateTriggerState};
+
+const MIN_MEDIA_CACHE_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_MEDIA_CACHE_LIMIT_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+const MEDIA_CACHE_LIMIT_FILE: &str = "media-cache-limit-bytes";
+
+#[tauri::command]
+pub fn matrix_get_media_cache_info() -> MatrixMediaCacheInfoResponse {
+    let usage = assets::media_cache_usage();
+    MatrixMediaCacheInfoResponse {
+        used_bytes: usage.total_bytes(),
+        max_bytes: assets::media_cache_max_bytes(),
+        image_bytes: usage.image_bytes,
+        video_bytes: usage.video_bytes,
+        other_bytes: usage.other_bytes,
+    }
+}
+
+#[tauri::command]
+pub fn matrix_set_media_cache_limit(
+    request: MatrixSetMediaCacheLimitRequest,
+    paths: State<'_, Paths>,
+) -> Result<MatrixSetMediaCacheLimitResponse, String> {
+    if !(MIN_MEDIA_CACHE_LIMIT_BYTES..=MAX_MEDIA_CACHE_LIMIT_BYTES).contains(&request.max_bytes) {
+        return Err("Media cache limit must be between 1 GB and 10 GB".into());
+    }
+    fs::create_dir_all(paths.data_dir())
+        .map_err(|error| format!("Failed to create app data directory: {error}"))?;
+    fs::write(
+        paths.data_file(MEDIA_CACHE_LIMIT_FILE),
+        request.max_bytes.to_string(),
+    )
+    .map_err(|error| format!("Failed to save media cache limit: {error}"))?;
+    assets::set_media_cache_max_bytes(request.max_bytes);
+    Ok(MatrixSetMediaCacheLimitResponse {
+        max_bytes: assets::media_cache_max_bytes(),
+        used_bytes: assets::media_cache_size_bytes(),
+    })
+}
+
+#[tauri::command]
+pub fn matrix_clear_media_cache() -> Result<MatrixClearMediaCacheResponse, String> {
+    let cleared_bytes = assets::clear_media_cache()?;
+    Ok(MatrixClearMediaCacheResponse {
+        cleared_bytes,
+        used_bytes: assets::media_cache_size_bytes(),
+    })
+}
 
 #[tauri::command]
 pub async fn matrix_get_profile(
