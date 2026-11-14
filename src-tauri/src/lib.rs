@@ -188,6 +188,7 @@ pub fn run() {
             commands::chat::matrix_open_direct_chat,
             commands::chat::matrix_send_chat_message,
             commands::chat::matrix_send_media_file,
+            commands::chat::matrix_get_file_size,
             commands::chat::matrix_cancel_media_transcode,
             commands::chat::matrix_toggle_reaction,
             commands::chat::matrix_copy_image_to_clipboard,

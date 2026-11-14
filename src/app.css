@@ -274,7 +274,7 @@
     padding: 0.45rem 0.65rem 0.35rem;
     border-radius: 12px;
     box-shadow: 0 1px 1px var(--tg-bubble-shadow);
-    transition: box-shadow 500ms ease, filter 500ms ease;
+    transition: box-shadow 180ms ease, filter 180ms ease;
     word-break: break-word;
   }
 
@@ -337,9 +337,26 @@
       0 1px 1px var(--tg-bubble-shadow);
   }
 
-  .reply-target-highlight .bubble {
-    box-shadow: 0 0 0 2px var(--tg-accent), 0 0 16px color-mix(in srgb, var(--tg-accent) 45%, transparent);
-    filter: brightness(1.06);
+  .reply-target-highlight {
+    isolation: isolate;
+  }
+
+  .message-row::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    top: 0;
+    bottom: 0;
+    left: var(--reply-highlight-left, 0px);
+    width: var(--reply-highlight-width, 100%);
+    background-color: color-mix(in srgb, var(--tg-accent) 20%, var(--tg-panel-alt));
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+
+  .reply-target-highlight::before {
+    opacity: 1;
   }
 }
 
@@ -384,6 +401,12 @@
 }
 
 /* Shared desktop layout and interaction surfaces. */
+.app-titlebar { background: var(--tg-app-bg); color: var(--tg-text-secondary); border-bottom: 1px solid var(--tg-border); }
+.app-titlebar [data-tauri-drag-region] { app-region: drag; -webkit-app-region: drag; }
+.app-titlebar-controls button { display: grid; width: 46px; place-items: center; border: 0; background: transparent; color: var(--tg-text-secondary); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
+.app-titlebar-controls button:hover { background: var(--tg-hover); color: var(--tg-text); }
+.app-titlebar-controls button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+.app-titlebar-controls .app-titlebar-close:hover { background: #e81123; color: #fff; }
 .app-sidebar { border-right: 1px solid var(--tg-border); }
 .account-header { padding: 8px 10px; }
 .account-avatar { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tg-accent) 12%, transparent); }
@@ -419,6 +442,10 @@
 .message-composer:focus-within { border-color: var(--tg-border); box-shadow: none; }
 .composer-controls { min-height: 34px; gap: 3px; align-items: center; }
 .composer-tool.btn { width: 34px; height: 34px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--tg-text-secondary); transition: color 140ms ease, filter 140ms ease; }
+.media-caption-input,
+.media-caption-input:focus,
+.media-caption-input:focus-visible { border: 0 !important; border-radius: 0 !important; outline: 0 !important; box-shadow: none !important; background: transparent !important; }
+.media-caption-emoji.composer-tool.btn { box-sizing: border-box; width: 38px; min-width: 38px; height: 34px; min-height: 34px; padding: 0; line-height: 1; }
 .composer-tool.btn:hover, .composer-tool.btn:focus-visible { border-radius: 0; background: transparent; color: var(--tg-accent); filter: drop-shadow(0 0 3px color-mix(in srgb, var(--tg-accent) 45%, transparent)); }
 .composer-send.btn { width: 34px; height: 34px; border: 0; border-radius: 0; padding: 0; background: transparent; color: var(--tg-text-secondary); transition: color 140ms ease, filter 140ms ease; }
 .composer-send.btn:hover:not(:disabled), .composer-send.btn:focus-visible { border-radius: 0; background: transparent; color: var(--tg-accent); filter: drop-shadow(0 0 4px color-mix(in srgb, var(--tg-accent) 55%, transparent)); }

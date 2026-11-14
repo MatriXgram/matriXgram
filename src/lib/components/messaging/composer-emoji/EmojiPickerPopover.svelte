@@ -31,6 +31,7 @@
     /// Icon shown on the trigger button instead of a text label.
     icon?: Snippet;
     buttonClass?: string;
+    wrapperClass?: string;
     popoverClass?: string;
     pickerStyle?: string;
     hoverToOpen?: boolean;
@@ -47,6 +48,7 @@
     buttonText = "Emoji",
     icon,
     buttonClass = "btn btn-sm",
+    wrapperClass = "relative",
     popoverClass = "rounded-xl border border-hairline bg-panel p-2 shadow-lg",
     pickerStyle = "width: min(280px, calc(100vw - 32px)); height: 280px; --emoji-size: 1.4rem; --category-emoji-size: 1rem; --num-columns: 7;",
     hoverToOpen = false,
@@ -211,7 +213,7 @@
 </script>
 
 {#if !hideButton}
-  <div class="relative" bind:this={pickerPopoverElement}>
+  <div class={wrapperClass} bind:this={pickerPopoverElement}>
     <button
       type="button"
       bind:this={triggerElement}

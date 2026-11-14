@@ -150,6 +150,10 @@ export async function matrixSendMediaFile(
   });
 }
 
+export async function matrixGetFileSize(filePath: string): Promise<number> {
+  return invokeMatrixCommand<number>("matrix_get_file_size", { filePath });
+}
+
 export async function matrixCancelMediaTranscode(
   input: MatrixCancelMediaTranscodeRequest,
 ): Promise<MatrixCancelMediaTranscodeResponse> {

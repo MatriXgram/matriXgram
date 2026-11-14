@@ -108,6 +108,10 @@
     const startHighlight = () => {
       if (highlightStarted) return;
       highlightStarted = true;
+      const timelineRect = timeline.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      target.style.setProperty("--reply-highlight-left", `${timelineRect.left - targetRect.left}px`);
+      target.style.setProperty("--reply-highlight-width", `${timelineRect.width}px`);
       target.classList.add("reply-target-highlight");
       highlightedMessageElement = target;
     };
@@ -122,7 +126,7 @@
         target.classList.remove("reply-target-highlight");
         if (highlightedMessageElement === target) highlightedMessageElement = null;
         highlightTimeout = null;
-      }, 2200);
+      }, 1200);
     };
 
     let sawScroll = false;

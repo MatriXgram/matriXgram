@@ -442,7 +442,7 @@
   }
 </script>
 
-<main class="h-screen overflow-hidden">
+<main class="h-full overflow-hidden">
     {#if $shellErrorMessage}
       <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
     {/if}

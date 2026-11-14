@@ -12,6 +12,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
 
   import {
     matrixCancelMediaTranscode,
+    matrixGetFileSize,
     matrixSendChatMessage,
     matrixSendMediaFile,
     matrixStreamChatMessages,
@@ -56,11 +57,12 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
   let pendingMedia = $state<{
     filePath: string;
     fileName: string;
+    fileSize: number | null;
     messageType: "m.image" | "m.video" | "m.file";
     compressMedia: boolean;
   } | null>(null);
   let mediaCaption = $state("");
-  let mediaCaptionInput = $state<HTMLTextAreaElement | null>(null);
+  let mediaCaptionInput = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
   let mediaEmojiPickerOpen = $state(false);
   let sendingMedia = $state(false);
   let mediaErrorMessage = $state("");
@@ -631,12 +633,46 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
     pendingMedia = {
       filePath,
       fileName: filePath.split(/[\\/]/).pop() || "attachment",
+      fileSize: null,
       messageType,
       compressMedia: messageType !== "m.video",
     };
+    void matrixGetFileSize(filePath).then((fileSize) => {
+      if (pendingMedia?.filePath === filePath) {
+        pendingMedia = { ...pendingMedia, fileSize };
+      }
+    }).catch(() => undefined);
     mediaCaption = "";
     mediaEmojiPickerOpen = false;
     mediaErrorMessage = "";
+  }
+
+  function fileExtension(fileName: string): string {
+    const dot = fileName.lastIndexOf(".");
+    return dot > 0 ? fileName.slice(dot + 1).toUpperCase() : "FILE";
+  }
+
+  function fileBadge(fileName: string): { label: string; color: string } {
+    const extension = fileExtension(fileName).toLowerCase();
+    if (["doc", "docx", "odt", "rtf"].includes(extension)) return { label: "W", color: "bg-blue-500/15 text-blue-500" };
+    if (["xls", "xlsx", "ods", "csv"].includes(extension)) return { label: "X", color: "bg-green-500/15 text-green-600" };
+    if (["ppt", "pptx", "odp"].includes(extension)) return { label: "P", color: "bg-orange-500/15 text-orange-500" };
+    if (extension === "pdf") return { label: "PDF", color: "bg-red-500/15 text-red-500" };
+    if (["zip", "rar", "7z", "tar", "gz"].includes(extension)) return { label: "ZIP", color: "bg-amber-500/15 text-amber-600" };
+    return { label: extension.slice(0, 4), color: "bg-surface-300-700 text-surface-700-300" };
+  }
+
+  function formatFileSize(bytes: number | null): string {
+    if (bytes === null) return "Reading file size…";
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let size = bytes / 1024;
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit += 1;
+    }
+    return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unit]}`;
   }
 
   function insertMediaCaptionEmoji(emoji: string) {
@@ -685,7 +721,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
   }
 
   function handlePendingMediaBackdropKeydown(event: KeyboardEvent) {
-    if (!pendingMedia) {
+    if (!pendingMedia || event.currentTarget !== event.target) {
       return;
     }
 
@@ -1529,6 +1565,24 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
     return !selectedRoom.isDirect;
   }
 </script>
+
+{#snippet mediaCaptionEmojiIcon()}
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    class="size-6"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="10" />
+    <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+    <line x1="9" y1="9" x2="9.01" y2="9" />
+    <line x1="15" y1="9" x2="15.01" y2="9" />
+  </svg>
+{/snippet}
 <svelte:window onfocus={scheduleReadVisible} />
 <svelte:document onvisibilitychange={scheduleReadVisible} />
 
@@ -1628,28 +1682,33 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
         onclick={handlePendingMediaBackdropClick}
         onkeydown={handlePendingMediaBackdropKeydown}
       >
-        <div class="max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-surface-300-700 bg-surface-100-900 shadow-2xl {pendingMedia.messageType === 'm.image' ? 'max-w-md' : 'max-w-3xl'}">
-          <div class="flex items-center justify-between border-b border-surface-300-700 {pendingMedia.messageType === 'm.image' ? 'px-3 py-2' : 'px-5 py-4'}">
-            {#if pendingMedia.messageType === "m.image"}
-              <p class="text-sm font-medium text-surface-700-300">Send image</p>
-            {:else}
-              <div>
-                <p class="text-lg font-semibold text-surface-900-100">Send file</p>
+        <div class="max-h-[92vh] w-full overflow-y-auto bg-surface-100-900 shadow-2xl {pendingMedia.messageType === 'm.image' ? 'max-w-md rounded-[8px]' : pendingMedia.messageType === 'm.file' ? 'max-w-md rounded-[8px] border border-surface-300-700' : 'max-w-3xl rounded-2xl border border-surface-300-700'}">
+          <div class="flex items-center justify-between border-b border-surface-300-700 {pendingMedia.messageType === 'm.image' || pendingMedia.messageType === 'm.file' ? 'px-3 py-2' : 'px-5 py-4'}">
+            <div>
+              <p class={pendingMedia.messageType === "m.video" ? "text-lg font-semibold text-surface-900-100" : "text-sm font-medium text-surface-900-100"}>{pendingMedia.messageType === "m.image" ? "Send image" : pendingMedia.messageType === "m.file" ? "Send file" : "Send video"}</p>
+              {#if pendingMedia.messageType === "m.video"}
                 <p class="text-sm text-surface-600-400">{pendingMedia.fileName}</p>
-              </div>
+              {/if}
+            </div>
+            {#if pendingMedia.messageType === "m.video"}
+              <button class="btn preset-outlined" type="button" onclick={cancelPendingMedia}>Cancel</button>
             {/if}
-            <button class="btn preset-outlined" type="button" onclick={cancelPendingMedia}>
-              {pendingMedia.messageType === "m.image" ? "×" : "Cancel"}
-            </button>
           </div>
 
-          <div class={pendingMedia.messageType === "m.image" ? "flex flex-col gap-2 p-3" : "grid gap-4 p-4 md:grid-cols-[minmax(0,1.25fr)_minmax(16rem,1fr)]"}>
-            <div class={pendingMedia.messageType === "m.image" ? "flex h-44 items-center justify-center rounded-xl bg-surface-200-800 p-2" : "flex min-h-[12rem] items-center justify-center rounded-xl bg-surface-200-800 p-3"}>
+          <div class={pendingMedia.messageType === "m.image" ? "flex flex-col gap-2 p-1" : pendingMedia.messageType === "m.file" ? "flex flex-col gap-3 px-1 py-2" : "grid gap-4 p-4 md:grid-cols-[minmax(0,1.25fr)_minmax(16rem,1fr)]"}>
+            <div class={pendingMedia.messageType === "m.image" ? "relative flex max-h-60 w-full items-center justify-center overflow-hidden rounded-[8px]" : pendingMedia.messageType === "m.file" ? "flex items-center gap-2" : "flex min-h-[12rem] items-center justify-center rounded-xl bg-surface-200-800 p-3"}>
               {#if pendingMedia.messageType === "m.image"}
+                <button
+                  class="absolute right-1.5 top-1.5 z-10 grid size-7 place-items-center rounded-[6px] bg-black/45 text-lg leading-none text-white transition hover:bg-black/65"
+                  type="button"
+                  aria-label="Close image preview"
+                  title="Close"
+                  onclick={cancelPendingMedia}
+                >×</button>
                 <img
                   src={convertFileSrc(pendingMedia.filePath)}
                   alt={pendingMedia.fileName}
-                  class="max-h-40 max-w-full rounded-lg object-contain"
+                  class="block max-h-60 w-full object-contain"
                 />
               {:else if pendingMedia.messageType === "m.video"}
                 <!-- svelte-ignore a11y_media_has_caption -->
@@ -1660,14 +1719,25 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                   class="max-h-[38vh] w-full rounded-lg bg-black"
                 ></video>
               {:else}
-                <div class="text-center">
-                  <div class="text-5xl">Attachment</div>
-                  <p class="mt-3 text-lg font-medium">{pendingMedia.fileName}</p>
+                {@const badge = fileBadge(pendingMedia.fileName)}
+                <div class={`grid size-14 shrink-0 place-items-center rounded-lg text-sm font-bold ${badge.color}`} aria-label={`${fileExtension(pendingMedia.fileName)} file`}>
+                  {badge.label}
                 </div>
+                <div class="min-w-0 flex-1">
+                  <p class="break-all text-sm font-medium text-surface-900-100">{pendingMedia.fileName}</p>
+                  <p class="mt-1 text-xs text-surface-600-400">{formatFileSize(pendingMedia.fileSize)}</p>
+                </div>
+                <button
+                  type="button"
+                  class="grid size-7 shrink-0 place-items-center text-lg leading-none text-surface-600-400 transition hover:text-surface-900-100"
+                  aria-label="Remove file"
+                  title="Remove file"
+                  onclick={cancelPendingMedia}
+                >×</button>
               {/if}
             </div>
 
-            <div class={pendingMedia.messageType === "m.image" ? "space-y-2" : "space-y-3 rounded-xl border border-surface-300-700 bg-surface-100-900 p-3"}>
+            <div class={pendingMedia.messageType === "m.image" ? "space-y-2" : pendingMedia.messageType === "m.file" ? "space-y-3" : "space-y-3 rounded-xl border border-surface-300-700 bg-surface-100-900 p-3"}>
               {#if pendingMedia.messageType !== "m.file"}
                 <label class={pendingMedia.messageType === "m.image" ? "flex items-center gap-2 px-1 text-sm" : "flex items-start gap-3 rounded-lg border border-surface-300-700 p-3"}>
                   <input type="checkbox" bind:checked={pendingMedia.compressMedia} class="mt-0.5" />
@@ -1679,7 +1749,105 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                   {/if}
                 </label>
               {/if}
-              {#if pendingMedia.messageType !== "m.file"}
+              {#if pendingMedia.messageType === "m.image"}
+                  <div class="group mb-2 flex min-h-12 items-end gap-1 border-b-[1.5px] border-surface-500-500 px-1.5 focus-within:border-primary-500">
+                    <div class="flex min-w-0 flex-1 flex-col">
+                      <span class="pt-1 text-xs text-surface-600-400">Caption</span>
+                      <input
+                        bind:this={mediaCaptionInput}
+                        bind:value={mediaCaption}
+                        type="text"
+                        maxlength="2000"
+                        aria-label="Caption"
+                        class="media-caption-input min-w-0 w-full border-0 bg-transparent px-0 pb-1.5 text-sm text-surface-900-100 shadow-none outline-none ring-0 focus:border-0 focus:ring-0 focus-visible:outline-none"
+                        onkeydown={(event) => {
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            if (!sendingMedia && $shellSelectedRoomId) void sendPendingMedia();
+                          }
+                        }}
+                      />
+                    </div>
+                    <EmojiPickerPopover
+                      bind:open={mediaEmojiPickerOpen}
+                      icon={mediaCaptionEmojiIcon}
+                      buttonClass="media-caption-emoji composer-tool btn shrink-0"
+                      wrapperClass="media-caption-emoji-wrap relative flex h-[34px] w-[38px] shrink-0 items-center justify-center"
+                      popoverClass="rounded-xl border border-hairline bg-panel p-1 shadow-lg"
+                      pickerStyle="width: min(280px, calc(100vw - 32px)); height: 260px; --emoji-size: 1.35rem; --category-emoji-size: 1rem; --num-columns: 7;"
+                      pickerCustomEmoji={$shellPickerCustomEmoji}
+                      onSelect={insertMediaCaptionEmoji}
+                    />
+                    <button
+                      type="button"
+                      class="composer-send btn shrink-0"
+                      disabled={sendingMedia || !$shellSelectedRoomId}
+                      title="Send image"
+                      aria-label="Send image"
+                      onclick={sendPendingMedia}
+                    >
+                      {#if sendingMedia}
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6 animate-spin" aria-hidden="true">
+                          <path d="M21 12a9 9 0 1 1-6.22-8.56" />
+                        </svg>
+                      {:else}
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true">
+                          <line x1="22" y1="2" x2="11" y2="13" />
+                          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                        </svg>
+                      {/if}
+                    </button>
+                  </div>
+              {:else if pendingMedia.messageType === "m.file"}
+                <div class="group mb-2 flex min-h-12 items-end gap-1 border-b-[1.5px] border-surface-500-500 px-1.5 focus-within:border-primary-500">
+                  <div class="flex min-w-0 flex-1 flex-col">
+                    <span class="pt-1 text-xs text-surface-600-400">Caption</span>
+                    <input
+                      bind:this={mediaCaptionInput}
+                      bind:value={mediaCaption}
+                      type="text"
+                      maxlength="2000"
+                      aria-label="Caption"
+                      class="media-caption-input min-w-0 w-full border-0 bg-transparent px-0 pb-1.5 text-sm text-surface-900-100 shadow-none outline-none ring-0 focus:border-0 focus:ring-0 focus-visible:outline-none"
+                      onkeydown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          if (!sendingMedia && $shellSelectedRoomId) void sendPendingMedia();
+                        }
+                      }}
+                    />
+                  </div>
+                  <EmojiPickerPopover
+                    bind:open={mediaEmojiPickerOpen}
+                    icon={mediaCaptionEmojiIcon}
+                    buttonClass="media-caption-emoji composer-tool btn shrink-0"
+                    wrapperClass="media-caption-emoji-wrap relative flex h-[34px] w-[38px] shrink-0 items-center justify-center"
+                    popoverClass="rounded-xl border border-hairline bg-panel p-1 shadow-lg"
+                    pickerStyle="width: min(280px, calc(100vw - 32px)); height: 260px; --emoji-size: 1.35rem; --category-emoji-size: 1rem; --num-columns: 7;"
+                    pickerCustomEmoji={$shellPickerCustomEmoji}
+                    onSelect={insertMediaCaptionEmoji}
+                  />
+                  <button
+                    type="button"
+                    class="composer-send btn shrink-0"
+                    disabled={sendingMedia || !$shellSelectedRoomId}
+                    title="Send file"
+                    aria-label="Send file"
+                    onclick={sendPendingMedia}
+                  >
+                    {#if sendingMedia}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6 animate-spin" aria-hidden="true">
+                        <path d="M21 12a9 9 0 1 1-6.22-8.56" />
+                      </svg>
+                    {:else}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true">
+                        <line x1="22" y1="2" x2="11" y2="13" />
+                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                      </svg>
+                    {/if}
+                  </button>
+                </div>
+              {:else}
                 <label class="block space-y-1.5">
                   <div class="relative">
                     <textarea
@@ -1754,14 +1922,16 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                 </div>
               {/if}
 
-              <button
-                type="button"
-                class="btn preset-filled w-full"
-                disabled={sendingMedia || !$shellSelectedRoomId}
-                onclick={sendPendingMedia}
-              >
-                {#if sendingMedia}Sending...{:else if pendingMedia.messageType === "m.image"}Send image{:else}Send file{/if}
-              </button>
+              {#if pendingMedia.messageType === "m.video"}
+                <button
+                  type="button"
+                  class="btn preset-filled w-full"
+                  disabled={sendingMedia || !$shellSelectedRoomId}
+                  onclick={sendPendingMedia}
+                >
+                  {#if sendingMedia}Sending...{:else}Send file{/if}
+                </button>
+              {/if}
             </div>
           </div>
         </div>

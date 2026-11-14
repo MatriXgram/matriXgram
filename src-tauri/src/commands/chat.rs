@@ -1,7 +1,7 @@
 //! Chat command adapters: message fetch/stream, send (text + media), reactions,
 //! emoji packs, user avatars, and clipboard. Delegates to the `chat` crate.
 
-use std::sync::Arc;
+use std::{fs, sync::Arc};
 
 use tauri::State;
 
@@ -19,6 +19,13 @@ use types::chat::{
     MatrixToggleReactionResponse,
 };
 use types::{event_paths, Paths, RoomUpdateTriggerState};
+
+#[tauri::command]
+pub fn matrix_get_file_size(file_path: String) -> Result<u64, String> {
+    fs::metadata(&file_path)
+        .map(|metadata| metadata.len())
+        .map_err(|error| format!("Failed to read file metadata: {error}"))
+}
 
 #[tauri::command]
 pub async fn matrix_get_chat_messages(

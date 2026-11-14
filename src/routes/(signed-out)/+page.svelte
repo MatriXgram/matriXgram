@@ -227,7 +227,7 @@
 
 </script>
 
-<main class="flex h-dvh flex-col items-center overflow-y-auto bg-panel-alt p-4">
+<main class="flex h-full flex-col items-center overflow-y-auto bg-panel-alt p-4">
   <section class="login-card my-auto w-full max-w-[340px] shrink-0 space-y-4 rounded-xl border border-hairline bg-panel p-5 shadow-sm">
     <header class="flex items-center gap-3">
       <div class="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
