@@ -1,4 +1,5 @@
-# MatriXgram
+<img width="590" height="128" alt="download (1)" src="https://github.com/user-attachments/assets/319e05b6-7e59-4b30-911d-1f87ec128475" />
+
 
 A Telegram-inspired desktop client for [Matrix](https://matrix.org/), built
 with Tauri, Rust and SvelteKit.
