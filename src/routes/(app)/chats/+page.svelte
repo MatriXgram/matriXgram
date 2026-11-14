@@ -1859,19 +1859,6 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                       aria-label="Caption"
                       class="w-full resize-y rounded-lg border border-surface-300-700 bg-surface-200-800 px-3 py-2 pr-12 text-sm text-surface-900-100 outline-none focus:border-primary-500"
                     ></textarea>
-                    {#if pendingMedia.messageType === "m.image"}
-                      <div class="absolute bottom-1.5 right-1.5">
-                        <EmojiPickerPopover
-                          bind:open={mediaEmojiPickerOpen}
-                          buttonText="☺"
-                          buttonClass="grid size-8 place-items-center rounded-md text-lg text-surface-600-400 transition hover:bg-hover hover:text-surface-900-100"
-                          popoverClass="rounded-xl border border-hairline bg-panel p-1 shadow-lg"
-                          pickerStyle="width: min(280px, calc(100vw - 32px)); height: 260px; --emoji-size: 1.35rem; --category-emoji-size: 1rem; --num-columns: 7;"
-                          pickerCustomEmoji={$shellPickerCustomEmoji}
-                          onSelect={insertMediaCaptionEmoji}
-                        />
-                      </div>
-                    {/if}
                   </div>
                 </label>
               {/if}
