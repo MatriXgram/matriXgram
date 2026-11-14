@@ -1,4 +1,4 @@
-use matrix_sdk::ruma::{OwnedServerName, RoomOrAliasId};
+use matrix_sdk::ruma::{OwnedServerName, RoomAliasId, RoomOrAliasId};
 use percent_encoding::percent_decode_str;
 use std::convert::TryFrom;
 use url::Url;
@@ -32,17 +32,77 @@ pub async fn join_room(
         })
         .collect();
 
-    let response = client
+    let response = match client
         .join_room_by_id_or_alias(room_id_or_alias, &server_names)
         .await
-        .map_err(|e| format!("Failed to join room: {e}"))?;
+    {
+        Ok(response) => response,
+        Err(error) => {
+            // Large federated rooms can commit the join on the homeserver, then
+            // time out before the response reaches the client. Reconcile once
+            // before reporting failure so the UI does not show a false error.
+            let debug_error = format!("{error:?}");
+            if debug_error.contains("TimedOut") || debug_error.to_lowercase().contains("timeout") {
+                let _ = protocol::sync::sync_once_brief(&client).await;
+                let expected_room_id = if room_id_or_alias_raw.starts_with('!') {
+                    Some(room_id_or_alias_raw.clone())
+                } else {
+                    if let Ok(alias) = <&RoomAliasId>::try_from(room_id_or_alias_raw.as_str()) {
+                        client
+                            .resolve_room_alias(alias)
+                            .await
+                            .ok()
+                            .map(|resolved| resolved.room_id.to_string())
+                    } else {
+                        None
+                    }
+                };
+                if let Some(expected_room_id) = expected_room_id {
+                    if client
+                        .joined_rooms()
+                        .iter()
+                        .any(|room| room.room_id().as_str() == expected_room_id)
+                    {
+                        let _ = crate::persistence::collect_and_store_chats(app_db, &client).await;
+                        return Ok(MatrixJoinRoomResponse {
+                            room_id: expected_room_id,
+                        });
+                    }
+                }
+                let background_client = client.clone();
+                let background_db = Arc::clone(app_db);
+                tokio::spawn(async move {
+                    for _ in 0..6 {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        let _ = protocol::sync::sync_once_brief(&background_client).await;
+                        let _ = crate::persistence::collect_and_store_chats(
+                            &background_db,
+                            &background_client,
+                        )
+                        .await;
+                    }
+                });
+                return Err(String::from(
+                    "JOIN_PENDING:Homeserver is still processing this join. The room will appear automatically when membership syncs.",
+                ));
+            }
+            return Err(format!("Failed to join room: {error}"));
+        }
+    };
 
-    let _ = protocol::sync::sync_once_brief(&client).await;
-    let _ = crate::persistence::collect_and_store_chats(app_db, &client).await;
+    let room_id = response.room_id().to_string();
 
-    Ok(MatrixJoinRoomResponse {
-        room_id: response.room_id().to_string(),
-    })
+    // Joining can take a long time already, especially for federated spaces.
+    // Do not make the UI wait for the follow-up sync and full room-list rebuild.
+    let background_client = client.clone();
+    let background_db = Arc::clone(app_db);
+    tokio::spawn(async move {
+        let _ = protocol::sync::sync_once_brief(&background_client).await;
+        let _ =
+            crate::persistence::collect_and_store_chats(&background_db, &background_client).await;
+    });
+
+    Ok(MatrixJoinRoomResponse { room_id })
 }
 
 fn parse_join_link_input(input: &str) -> (String, Vec<String>) {

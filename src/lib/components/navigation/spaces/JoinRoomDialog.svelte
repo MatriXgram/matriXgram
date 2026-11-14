@@ -13,6 +13,7 @@
 
   let dialogElement: HTMLDialogElement | undefined = $state();
   let loading = $state(false);
+  let joinPending = $state(false);
   let roomInput = $state("");
 
   /// A pasted `matrix:` or `matrix.to` link is a full URI, not an alias, and
@@ -27,6 +28,7 @@
       if (!dialogElement.open) {
         dialogElement.showModal();
         roomInput = "";
+        joinPending = false;
       }
     } else if (!open && dialogElement && dialogElement.open) {
       dialogElement.close();
@@ -55,6 +57,7 @@
     }
 
     loading = true;
+    joinPending = false;
     shellErrorMessage.set("");
 
     try {
@@ -67,7 +70,12 @@
       await goto(`/chats?${searchParams.toString()}`);
       onClose();
     } catch (e) {
-      shellErrorMessage.set(e instanceof Error ? e.message : "Failed to join room");
+      const message = e instanceof Error ? e.message : "Failed to join room";
+      if (message.startsWith("JOIN_PENDING:")) {
+        joinPending = true;
+      } else {
+        shellErrorMessage.set(message);
+      }
     } finally {
       loading = false;
     }
@@ -91,9 +99,12 @@
         placeholder="#room:server.com"
         bind:value={roomInput}
         class="input preset-outlined-surface-200-800 bg-surface-50-950 px-3 py-2 w-full"
-        disabled={loading}
+        disabled={loading || joinPending}
         use:focusInput
       />
+      {#if joinPending}
+        <p class="text-sm text-secondary" role="status">Homeserver is still processing the join. The room will appear automatically when membership syncs.</p>
+      {/if}
       <div class="flex justify-end gap-2">
         <button
           type="button"
@@ -106,9 +117,9 @@
         <button
           type="submit"
           class="btn preset-filled-primary-500 px-4 py-2 opacity-90 hover:opacity-100 disabled:opacity-50"
-          disabled={loading || !roomInput.trim()}
+          disabled={loading || joinPending || !roomInput.trim()}
         >
-          {loading ? 'Joining...' : 'Join'}
+          {loading || joinPending ? 'Joining...' : 'Join'}
         </button>
       </div>
     </form>

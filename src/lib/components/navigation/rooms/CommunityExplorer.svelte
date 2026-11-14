@@ -7,6 +7,7 @@
 
   const STORAGE_KEY = "matrixgram.community-directories";
   const LEGACY_STORAGE_KEY = "matrix-telegram.community-directories";
+  const PENDING_JOINS_KEY = "matrixgram.pending-room-joins";
   const defaults = [
     "matrix.org",
     "matrixrooms.info",
@@ -23,8 +24,10 @@
   let loading = $state(false);
   let error = $state("");
   let customServer = $state("");
+  let directoryTab = $state<"servers" | "pending">("servers");
   let joining = $state("");
   let joined = $state<string[]>([]);
+  let pendingJoins = $state<{ roomId: string; name: string; alias: string; server: string; since: number }[]>([]);
   let failedAvatars = $state<string[]>([]);
   let selectedRoom = $state<MatrixPublicRoom | null>(null);
   let linkContextMenu = $state<{ url: string; x: number; y: number } | null>(null);
@@ -83,11 +86,23 @@
       if (Array.isArray(saved)) directories = [...new Set([...defaults, ...saved.filter((item) => typeof item === "string")])];
       if (!localStorage.getItem(STORAGE_KEY) && localStorage.getItem(LEGACY_STORAGE_KEY)) localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     } catch { /* use built-in directories */ }
+    try {
+      const savedPending = JSON.parse(localStorage.getItem(PENDING_JOINS_KEY) ?? "[]");
+      if (Array.isArray(savedPending)) pendingJoins = savedPending;
+    } catch { /* ignore invalid pending-join cache */ }
     addOwnServer($shellCurrentUserId);
     void loadRooms();
   });
 
   $effect(() => addOwnServer($shellCurrentUserId));
+
+  $effect(() => {
+    const stillPending = pendingJoins.filter((room) => !isJoined(room.roomId));
+    if (stillPending.length !== pendingJoins.length) {
+      pendingJoins = stillPending;
+      localStorage.setItem(PENDING_JOINS_KEY, JSON.stringify(stillPending));
+    }
+  });
 
   async function loadRooms(reset = true) {
     if (!selectedServer || (loading && !reset)) return;
@@ -139,7 +154,16 @@
       await matrixJoinRoom(room.canonicalAlias || room.roomId, [room.directoryServer]);
       joined = [...joined, room.roomId];
       await matrixTriggerRoomUpdate({ includeSelectedMessages: false });
-    } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (message.startsWith("JOIN_PENDING:")) {
+        pendingJoins = [
+          ...pendingJoins.filter((item) => item.roomId !== room.roomId),
+          { roomId: room.roomId, name: room.name || room.canonicalAlias || room.roomId, alias: room.canonicalAlias || room.roomId, server: room.directoryServer, since: Date.now() },
+        ];
+        localStorage.setItem(PENDING_JOINS_KEY, JSON.stringify(pendingJoins));
+      } else error = message;
+    }
     finally { joining = ""; }
   }
 </script>
@@ -156,21 +180,45 @@
 
   <div class="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)]">
     <aside class="flex min-h-0 flex-col border-b border-hairline bg-panel-alt/40 md:border-b-0 md:border-r">
-      <div class="px-3 pb-1 pt-3"><h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Directory servers</h2></div>
-      <nav class="min-h-0 flex-1 overflow-y-auto px-0 pb-1" aria-label="Directory servers">
-        {#each directories as server (server)}
-          <button type="button" class={`flex w-full cursor-pointer items-center gap-2 border-l-2 px-2 py-1.5 text-left text-sm transition-colors ${selectedServer === server ? "border-accent bg-accent/5 text-primary" : "border-transparent text-secondary hover:text-primary"}`} aria-current={selectedServer === server ? "true" : undefined} onclick={() => { selectedServer = server; void loadRooms(); }}>
-            <span class="grid size-6 shrink-0 place-items-center rounded-full bg-panel text-[10px] font-semibold uppercase text-muted">{server.slice(0, 1)}</span>
-            <span class="min-w-0 flex-1 truncate">{server}</span>
-            {#if server === userServer($shellCurrentUserId)}<span class="shrink-0 text-[10px] text-muted">You</span>{/if}
-            {#if selectedServer === server}<span class="size-1.5 rounded-full bg-accent"></span>{/if}
-          </button>
-        {/each}
-      </nav>
-      <form class="flex shrink-0 gap-1 border-t border-hairline p-2" onsubmit={(event) => { event.preventDefault(); addServer(); }}>
-        <input bind:value={customServer} class="min-w-0 flex-1 rounded-md border border-hairline bg-panel px-2 py-2 text-xs outline-none focus:border-accent" placeholder="Add server name" aria-label="Add directory server" />
-        <button type="submit" class="btn btn-sm" disabled={!customServer.trim()} aria-label="Add directory server" title="Add directory server">Add</button>
-      </form>
+      <div class="grid shrink-0 grid-cols-2 border-b border-hairline text-xs font-medium">
+        <button type="button" class={`cursor-pointer border-b-2 px-2 py-2 ${directoryTab === "servers" ? "border-accent text-primary" : "border-transparent text-muted hover:text-primary"}`} onclick={() => directoryTab = "servers"}>Servers</button>
+        <button type="button" class={`cursor-pointer border-b-2 px-2 py-2 ${directoryTab === "pending" ? "border-accent text-primary" : "border-transparent text-muted hover:text-primary"}`} onclick={() => directoryTab = "pending"}>Pending{#if pendingJoins.length} ({pendingJoins.length}){/if}</button>
+      </div>
+      {#if directoryTab === "servers"}
+        <nav class="min-h-0 flex-1 overflow-y-auto px-0 py-1" aria-label="Directory servers">
+          {#each directories as server (server)}
+            <button type="button" class={`flex w-full cursor-pointer items-center gap-2 border-l-2 px-2 py-1.5 text-left text-sm transition-colors ${selectedServer === server ? "border-accent bg-accent/5 text-primary" : "border-transparent text-secondary hover:text-primary"}`} aria-current={selectedServer === server ? "true" : undefined} onclick={() => { selectedServer = server; void loadRooms(); }}>
+              <span class="grid size-6 shrink-0 place-items-center rounded-full bg-panel text-[10px] font-semibold uppercase text-muted">{server.slice(0, 1)}</span>
+              <span class="min-w-0 flex-1 truncate">{server}</span>
+              {#if server === userServer($shellCurrentUserId)}<span class="shrink-0 text-[10px] text-muted">You</span>{/if}
+              {#if selectedServer === server}<span class="size-1.5 rounded-full bg-accent"></span>{/if}
+            </button>
+          {/each}
+        </nav>
+        <form class="flex shrink-0 gap-1 border-t border-hairline p-2" onsubmit={(event) => { event.preventDefault(); addServer(); }}>
+          <input bind:value={customServer} class="min-w-0 flex-1 rounded-md border border-hairline bg-panel px-2 py-2 text-xs outline-none focus:border-accent" placeholder="Add server name" aria-label="Add directory server" />
+          <button type="submit" class="btn btn-sm" disabled={!customServer.trim()} aria-label="Add directory server" title="Add directory server">Add</button>
+        </form>
+      {:else}
+        <div class="min-h-0 flex-1 overflow-y-auto px-2 py-1" aria-label="Rooms waiting to join">
+          {#if pendingJoins.length === 0}
+            <p class="px-1 py-3 text-xs text-muted">No rooms waiting to join.</p>
+          {:else}
+            {#each pendingJoins as pending (pending.roomId)}
+              <div class="flex min-w-0 items-start gap-2 border-b border-hairline py-2">
+                <span class="mt-1 size-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden="true"></span>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm text-primary" title={pending.name}>{pending.name}</p>
+                  <p class="truncate text-xs text-muted" title={pending.alias}>{pending.alias}</p>
+                  <p class="mt-1 text-xs text-secondary">Waiting for {pending.server}</p>
+                </div>
+                <button type="button" class="cursor-pointer px-1 text-muted hover:text-primary" aria-label={`Remove ${pending.name} from pending list`} title="Dismiss" onclick={() => { pendingJoins = pendingJoins.filter((item) => item.roomId !== pending.roomId); localStorage.setItem(PENDING_JOINS_KEY, JSON.stringify(pendingJoins)); }}>×</button>
+              </div>
+            {/each}
+            <p class="px-1 py-2 text-xs text-muted">This list updates when your homeserver syncs membership.</p>
+          {/if}
+        </div>
+      {/if}
     </aside>
 
     <section class="flex min-h-0 min-w-0 flex-col">
@@ -183,6 +231,7 @@
       </div>
       {#if error}<p class="mx-5 mt-4 rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm text-danger">{error}</p>{/if}
       <div class="min-h-0 flex-1 overflow-y-auto p-1 sm:p-2">
+        <div class="min-h-full">
         {#if loading && rooms.length === 0}
           <div class="grid h-full place-items-center text-sm text-muted" role="status">Loading public rooms…</div>
         {:else if rooms.length === 0 && !error}
@@ -205,7 +254,8 @@
             {/each}
           </ul>
         {/if}
-        {#if nextBatch}<div class="mx-auto mt-4 max-w-5xl"><button type="button" class="btn w-full" disabled={loading} onclick={() => void loadRooms(false)}>{loading ? "Loading…" : "Load more rooms"}</button></div>{/if}
+          {#if nextBatch}<div class="mx-auto mt-4 max-w-5xl"><button type="button" class="btn w-full" disabled={loading} onclick={() => void loadRooms(false)}>{loading ? "Loading…" : "Load more rooms"}</button></div>{/if}
+        </div>
       </div>
     </section>
   </div>
