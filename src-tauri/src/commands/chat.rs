@@ -12,14 +12,13 @@ use types::chat::{
     MatrixChatMessageStreamEvent, MatrixCopyImageToClipboardRequest, MatrixDownloadFileRequest,
     MatrixDownloadFileResponse, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
     MatrixGetEmojiPacksResponse, MatrixGetPinnedEventsRequest, MatrixGetPinnedEventsResponse,
-    MatrixGetRoomMembersRequest, MatrixGetUploadLimitResponse,
-    MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse, MatrixRedactMessageRequest,
-    MatrixRedactMessageResponse, MatrixReplyEventRequest, MatrixResolveVideoUrlRequest,
-    MatrixSetMessagePinnedRequest, MatrixSetMessagePinnedResponse,
-    MatrixResolveVideoUrlResponse, MatrixRoomMember, MatrixSendChatMessageRequest,
-    MatrixSendChatMessageResponse, MatrixSendMediaFileRequest, MatrixSendMediaFileResponse,
-    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest,
-    MatrixToggleReactionResponse,
+    MatrixGetRoomMembersRequest, MatrixGetUploadLimitResponse, MatrixGetUserAvatarRequest,
+    MatrixGetUserAvatarResponse, MatrixRedactMessageRequest, MatrixRedactMessageResponse,
+    MatrixReplyEventRequest, MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse,
+    MatrixRoomMember, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
+    MatrixSendMediaFileRequest, MatrixSendMediaFileResponse, MatrixSetMessagePinnedRequest,
+    MatrixSetMessagePinnedResponse, MatrixStreamChatMessagesRequest,
+    MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
 };
 use types::{event_paths, Paths, RoomUpdateTriggerState};
 
@@ -529,7 +528,9 @@ pub async fn matrix_set_message_pinned(
             .map_err(|error| format!("Failed to unpin message: {error}"))?;
     }
     let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id), true);
-    Ok(MatrixSetMessagePinnedResponse { pinned: request.pinned })
+    Ok(MatrixSetMessagePinnedResponse {
+        pinned: request.pinned,
+    })
 }
 
 #[tauri::command]

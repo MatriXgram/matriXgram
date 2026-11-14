@@ -1823,6 +1823,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
 {/if}
 
 {#if pendingMedia}
+  {@const pendingMediaIsVideo = pendingMedia.messageType === "m.video"}
       <div
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
         role="button"
@@ -1945,8 +1946,8 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
                       type="button"
                       class="composer-send btn shrink-0"
                       disabled={sendingMedia || !$shellSelectedRoomId || pendingMedia.checkingLimit || !!pendingMedia.limitError || (!pendingMedia.compressMedia && pendingMedia.fileSize !== null && pendingMedia.maxUploadSize !== null && pendingMedia.fileSize > pendingMedia.maxUploadSize)}
-                      title={pendingMedia.messageType === "m.video" ? "Send video" : "Send image"}
-                      aria-label={pendingMedia.messageType === "m.video" ? "Send video" : "Send image"}
+                      title={String(pendingMedia.messageType) === "m.video" ? "Send video" : "Send image"}
+                      aria-label={String(pendingMedia.messageType) === "m.video" ? "Send video" : "Send image"}
                       onclick={() => void sendPendingMedia()}
                     >
                       {#if sendingMedia}
@@ -2055,8 +2056,8 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
               {#if mediaErrorMessage}
                 <div class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-700">
                   {mediaErrorMessage}
-                  {#if pendingMedia.limitError}
-                    <button type="button" class="ml-2 underline" onclick={() => void validatePendingMedia(pendingMedia.filePath)}>Retry limit check</button>
+                  {#if pendingMedia && pendingMedia.limitError}
+                    <button type="button" class="ml-2 underline" onclick={() => pendingMedia && void validatePendingMedia(pendingMedia.filePath)}>Retry limit check</button>
                   {/if}
                 </div>
               {/if}

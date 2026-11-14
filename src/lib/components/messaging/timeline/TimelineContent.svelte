@@ -139,7 +139,7 @@
                 ...pinnedPreviews,
                 [eventId]: {
                   body: getPinnedPreviewBody(message.body, message.messageType),
-                  imageUrl: message.messageType === "m.image" ? message.thumbnailUrl || message.imageUrl : null,
+                  imageUrl: message.messageType === "m.image" ? message.thumbnailUrl || message.imageUrl || null : null,
                   timestamp: message.timestamp ?? null,
                 },
               };

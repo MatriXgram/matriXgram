@@ -791,7 +791,10 @@ impl AppDb {
                 .execute("DELETE FROM message_cache WHERE room_id = ?1", [&room_id])
                 .map_err(|error| format!("Failed to clear room message cache: {error}"))?;
             connection
-                .execute("DELETE FROM message_cache_state WHERE room_id = ?1", [&room_id])
+                .execute(
+                    "DELETE FROM message_cache_state WHERE room_id = ?1",
+                    [&room_id],
+                )
                 .map_err(|error| format!("Failed to clear room message cache state: {error}"))?;
             Ok(())
         })
