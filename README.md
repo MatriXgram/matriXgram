@@ -1,21 +1,21 @@
-<img width="590" height="128" alt="download (1)" src="https://github.com/user-attachments/assets/319e05b6-7e59-4b30-911d-1f87ec128475" />
+# MatriXgram
 
-
-A Telegram-inspired desktop client for [Matrix](https://matrix.org/), built
-with Tauri, Rust and SvelteKit.
+A Telegram-inspired desktop client for [Matrix](https://matrix.org/), built with
+Tauri, Rust and SvelteKit.
 
 ## Features
 
-- Matrix password and OAuth/SSO sign-in, saved sessions, rooms and spaces.
-- Chat with replies, reactions, mentions, formatting, images, video and files.
-- Unread markers, automatic history loading and jump to latest.
-- Public-room explorer, room details, joining and user profiles.
-- SAS device verification and customizable themes.
-- Open message links in the system browser or copy them from the context menu.
+- Password and OAuth/SSO sign-in, saved sessions, rooms and spaces.
+- Messages with replies, reactions, mentions, edits, formatting, images, video
+  and files; image viewer with zoom and navigation.
+- Unread markers, automatic history loading, pinned messages and jump to latest.
+- Public-room explorer, room settings and details, member list, user profiles,
+  and join/leave notices.
+- SAS device verification, cache controls and customizable themes.
+- Link previews and actions to open links in the system browser or copy them.
 
-Threads are partially implemented: thread relations are parsed, but thread
-views and replies are not available yet. Sending edits and redactions, stickers,
-voice messages, desktop notifications and calls are also not implemented.
+Thread relations are parsed, but thread views and replies are not yet available.
+Stickers, voice messages, desktop notifications and calls are not implemented.
 
 ## Getting started
 
@@ -28,7 +28,7 @@ npm ci
 npm run tauri -- dev
 ```
 
-Build a release package with:
+Build a local release package with:
 
 ```bash
 npm run tauri -- build
@@ -42,6 +42,13 @@ cd src-tauri
 cargo check --workspace --all-targets
 cargo test --workspace
 ```
+
+## Releases
+
+Push a version tag (for example, `v0.1.1`) to run the release workflow. It builds
+Windows installers and Linux DEB, RPM and Flatpak packages, then publishes them
+with generated release notes. Installer assets are removed from older releases;
+their release pages, notes and source archives are kept.
 
 ## Attribution and licence
 
