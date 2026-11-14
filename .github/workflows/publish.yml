@@ -59,7 +59,7 @@ jobs:
     uses: ./.github/workflows/build-flatpak-job.yml
     with:
       manifest-path: 'flatpak/app.matrix.telegram.yml'
-      bundle-name: 'matrixgram-linux-flatpak.flatpak'
+      bundle-name: 'MatriXgram.flatpak'
       artifact-name: 'matrixgram-linux-flatpak'
     secrets: inherit
 

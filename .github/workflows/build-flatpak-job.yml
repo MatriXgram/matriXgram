@@ -10,7 +10,7 @@ on:
       bundle-name:
         required: false
         type: string
-        default: 'matrixgram-linux-flatpak.flatpak'
+        default: 'MatriXgram.flatpak'
       artifact-name:
         required: false
         type: string
