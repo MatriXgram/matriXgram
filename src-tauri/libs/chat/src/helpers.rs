@@ -143,6 +143,7 @@ mod tests {
         message.custom_emojis = vec![MatrixCustomEmoji {
             shortcode: String::from("wave"),
             url: String::from("asset://localhost/%2Ftmp%2Fsingularity-test%2Fmissing%2Fwave.png"),
+            source_url: None,
         }];
 
         assert!(has_stale_cached_media_urls(&[message]));
@@ -168,6 +169,7 @@ mod tests {
         message.custom_emojis = vec![MatrixCustomEmoji {
             shortcode: String::from("wave"),
             url: encode(&emoji),
+            source_url: None,
         }];
 
         assert!(!has_stale_cached_media_urls(&[message]));

@@ -6,7 +6,7 @@
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
   import { matrixSessionStatus } from "$lib/auth/api";
-  import { matrixGetProfile } from "$lib/settings/api";
+  import { matrixGetProfile, matrixRoomLeave } from "$lib/settings/api";
   import {
     matrixGetChatNavigation,
     matrixGetChats,
@@ -54,7 +54,87 @@
   let loggingOut = $state(false);
   let currentUserAvatar = $state<string | null>(null);
   let spaceSettingsDialogRoomId = $state<string | null>(null);
+  let notificationsOpen = $state(false);
+  let selectedInvite = $state<MatrixChatSummary | null>(null);
+  let acceptingInvite = $state(false);
+  let readInviteIds = $state<string[]>([]);
+  let dismissedInviteIds = $state<string[]>([]);
+  const inviteNotifications = $derived($shellChats.filter((chat) => chat.isInvited && !dismissedInviteIds.includes(chat.roomId)));
+  const unreadInviteCount = $derived(inviteNotifications.filter((invite) => !readInviteIds.includes(invite.roomId)).length);
+
+  function markInviteRead(roomId: string) {
+    if (readInviteIds.includes(roomId)) return;
+    readInviteIds = [...readInviteIds, roomId];
+    localStorage.setItem("matrixgram.read-invites", JSON.stringify(readInviteIds));
+  }
+
+  function openNotifications() {
+    notificationsOpen = !notificationsOpen;
+    if (notificationsOpen) {
+      readInviteIds = [...new Set([...readInviteIds, ...inviteNotifications.map((invite) => invite.roomId)])];
+      localStorage.setItem("matrixgram.read-invites", JSON.stringify(readInviteIds));
+    }
+  }
+
+  function handleNotificationOutsidePointer(event: PointerEvent) {
+    if (!notificationsOpen) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("[data-notification-trigger], [data-notification-popover]")) return;
+    notificationsOpen = false;
+  }
+
+  function clearReadNotifications() {
+    const readIds = inviteNotifications.filter((invite) => readInviteIds.includes(invite.roomId)).map((invite) => invite.roomId);
+    dismissedInviteIds = [...new Set([...dismissedInviteIds, ...readIds])];
+    localStorage.setItem("matrixgram.dismissed-invites", JSON.stringify(dismissedInviteIds));
+  }
+
+  async function declineInvite(invite: MatrixChatSummary) {
+    if (acceptingInvite) return;
+    acceptingInvite = true;
+    try {
+      await matrixRoomLeave({ roomId: invite.roomId, forget: true });
+      selectedInvite = null;
+      dismissedInviteIds = [...new Set([...dismissedInviteIds, invite.roomId])];
+      localStorage.setItem("matrixgram.dismissed-invites", JSON.stringify(dismissedInviteIds));
+      shellChats.update((chats) => chats.filter((chat) => chat.roomId !== invite.roomId));
+      await requestRefresh();
+    } catch (error) {
+      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to decline invitation");
+    } finally {
+      acceptingInvite = false;
+    }
+  }
   const isCommunityExplorer = $derived(page.url.searchParams.get("view") === "communities");
+
+  async function openInvite(invite: MatrixChatSummary) {
+    markInviteRead(invite.roomId);
+    if (invite.isDirect) {
+      await acceptInvite(invite);
+    } else {
+      selectedInvite = invite;
+      notificationsOpen = false;
+    }
+  }
+
+  async function acceptInvite(invite: MatrixChatSummary) {
+    if (acceptingInvite) return;
+    acceptingInvite = true;
+    try {
+      const { roomId } = await matrixJoinRoom(invite.roomId, invite.inviteViaServers);
+      selectedInvite = null;
+      notificationsOpen = false;
+      shellSelectedRoomId.set(roomId);
+      const params = new URLSearchParams(page.url.searchParams);
+      params.set("roomId", roomId);
+      await goto(`/chats?${params.toString()}`);
+      await requestRefresh();
+    } catch (error) {
+      shellErrorMessage.set(error instanceof Error ? error.message : "Failed to accept invitation");
+    } finally {
+      acceptingInvite = false;
+    }
+  }
 
   // The chat list can be resized by dragging the divider next to it.
   const SIDEBAR_WIDTH_KEY = "matrixgram.sidebarWidth";
@@ -124,6 +204,12 @@
   }
 
   onMount(() => {
+    try {
+      const savedReadInvites = JSON.parse(localStorage.getItem("matrixgram.read-invites") ?? "[]");
+      if (Array.isArray(savedReadInvites)) readInviteIds = savedReadInvites.filter((value): value is string => typeof value === "string");
+      const savedDismissedInvites = JSON.parse(localStorage.getItem("matrixgram.dismissed-invites") ?? "[]");
+      if (Array.isArray(savedDismissedInvites)) dismissedInviteIds = savedDismissedInvites.filter((value): value is string => typeof value === "string");
+    } catch { /* ignore invalid local read-state */ }
     let unlisten = () => {};
     let unlistenDeepLink = () => {};
 
@@ -145,6 +231,15 @@
         onRoomRemoved: applyRoomRemoval,
         onSelectedRoomMessages: (_payload: MatrixSelectedRoomMessagesEvent) => {},
         onChatMessagesStream: () => {},
+        onVerificationStateChanged: (payload) => {
+          if (!payload.verified) return;
+          const selectedRoomId = get(shellSelectedRoomId);
+          if (selectedRoomId) {
+            // Re-read the visible timeline after SAS so per-message sender trust
+            // indicators are recomputed from the updated device verification state.
+            void matrixTriggerRoomUpdate({ selectedRoomId, includeSelectedMessages: true });
+          }
+        },
         onProfileAvatarUpdated: (payload) => {
           // Matrix pushed an avatar change for this user; drop every cached
           // avatar so message headers re-resolve the new image.
@@ -442,6 +537,8 @@
   }
 </script>
 
+<svelte:window onpointerdown={handleNotificationOutsidePointer} onkeydown={(event) => { if (event.key === "Escape") notificationsOpen = false; }} />
+
 <main class="h-full overflow-hidden">
     {#if $shellErrorMessage}
       <p class="card p-3 text-sm preset-filled-error-500 mx-4 md:mx-6 mt-4">{$shellErrorMessage}</p>
@@ -477,15 +574,25 @@
           compact={isCommunityExplorer}
         />
 
-        <a
-          class={`sidebar-footer btn ${isCommunityExplorer ? "justify-center px-0" : ""}`}
-          href={page.url.pathname.startsWith("/settings")
-            ? `/chats?${new URLSearchParams({ roomId: $shellSelectedRoomId, rootSpaceId: $shellSelectedRootSpaceId })}`
-            : "/settings"}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-[18px]" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z"/><circle cx="12" cy="12" r="3"/></svg>
-          {#if !isCommunityExplorer}{page.url.pathname.startsWith("/settings") ? "Back to chat" : "Settings"}{/if}
-        </a>
+        <div class="sidebar-footer relative flex gap-1">
+          <button type="button" data-notification-trigger aria-label="Notifications" title="Notifications" class={`btn relative min-w-0 flex-1 justify-center px-0 ${notificationsOpen ? "bg-hover text-primary" : ""}`} aria-expanded={notificationsOpen} onclick={openNotifications}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-[18px]" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+            {#if unreadInviteCount}<span class="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] leading-4 text-white">{unreadInviteCount}</span>{/if}
+          </button>
+          <a class="btn min-w-0 flex-1 justify-center px-0" aria-label="Settings" title={page.url.pathname.startsWith("/settings") ? "Back to chat" : "Settings"} href={page.url.pathname.startsWith("/settings") ? `/chats?${new URLSearchParams({ roomId: $shellSelectedRoomId, rootSpaceId: $shellSelectedRootSpaceId })}` : "/settings"}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-[18px]" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z"/><circle cx="12" cy="12" r="3"/></svg>
+          </a>
+          {#if notificationsOpen}
+            <section data-notification-popover class="absolute bottom-full left-0 z-50 mb-2 max-h-[min(70vh,520px)] w-[min(360px,calc(100vw-24px))] overflow-y-auto border border-hairline bg-panel shadow-xl" aria-label="Invitations">
+              <div class="sticky top-0 flex items-center justify-between border-b border-hairline bg-panel px-3 py-2"><h2 class="text-sm font-semibold">Notifications</h2><div class="flex items-center gap-2">{#if inviteNotifications.some((invite) => readInviteIds.includes(invite.roomId))}<button type="button" class="cursor-pointer text-xs text-secondary hover:text-primary" onclick={clearReadNotifications}>Clear read</button>{/if}<button type="button" class="cursor-pointer px-1 text-secondary hover:text-primary" aria-label="Close notifications" onclick={() => notificationsOpen = false}>×</button></div></div>
+              {#if inviteNotifications.length === 0}<p class="px-3 py-5 text-center text-sm text-secondary">No new invitations.</p>{:else}
+                {#each inviteNotifications as invite (invite.roomId)}
+                  <div class="flex items-center gap-1 border-b border-hairline pr-2"><button type="button" class="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-3 py-3 text-left hover:bg-panel-alt" onclick={() => void openInvite(invite)}><div class="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">{invite.displayName.slice(0, 1).toUpperCase()}</div><div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-primary">{invite.displayName}</p><p class="text-xs text-secondary">{invite.isDirect ? "Private chat invite · Open conversation" : "Room invite · View room details"}</p></div><span class="text-xs text-accent">Open</span></button><button type="button" class="btn btn-sm" title="Decline invitation" aria-label={`Decline ${invite.displayName}`} onclick={() => void declineInvite(invite)}>Decline</button></div>
+                {/each}
+              {/if}
+            </section>
+          {/if}
+        </div>
 
         <!-- Resize handle: drag to widen or narrow the chat list, double
              click to go back to the default width. -->
@@ -510,6 +617,30 @@
       </section>
     </div>
   </main>
+
+{#if selectedInvite}
+  <div class="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) selectedInvite = null; }}>
+    <section class="w-full max-w-md border border-hairline bg-panel shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="invite-room-title">
+      <header class="flex items-start gap-3 border-b border-hairline p-4">
+        <div class="grid size-12 shrink-0 place-items-center rounded-full bg-accent-soft text-lg font-semibold text-accent">{selectedInvite.displayName.slice(0, 1).toUpperCase()}</div>
+        <div class="min-w-0 flex-1"><p class="text-xs font-semibold uppercase tracking-wide text-accent">Room invitation</p><h2 id="invite-room-title" class="break-words text-lg font-semibold">{selectedInvite.displayName}</h2></div>
+        <button type="button" class="cursor-pointer px-1 text-secondary hover:text-primary" aria-label="Close room information" onclick={() => selectedInvite = null}>×</button>
+      </header>
+      <div class="space-y-3 p-4">
+        <p class="text-sm text-secondary">You have been invited to this room.</p>
+        <div><h3 class="text-xs font-semibold uppercase tracking-wide text-muted">Room ID</h3><p class="mt-1 break-all font-mono text-xs text-primary">{selectedInvite.roomId}</p></div>
+        <p class="text-sm text-secondary">{selectedInvite.joinedMembers.toLocaleString()} members · {selectedInvite.encrypted ? "Encrypted" : "Not encrypted"}</p>
+      </div>
+      <footer class="flex items-center justify-between gap-2 border-t border-hairline p-3">
+        <button type="button" class="btn text-danger hover:bg-danger/10" disabled={acceptingInvite} onclick={() => selectedInvite && void declineInvite(selectedInvite)}>Decline</button>
+        <div class="flex gap-2">
+          <button type="button" class="btn" onclick={() => selectedInvite = null}>Later</button>
+          <button type="button" class="btn btn-primary" disabled={acceptingInvite} onclick={() => selectedInvite && void acceptInvite(selectedInvite)}>{acceptingInvite ? "Joining…" : "Join room"}</button>
+        </div>
+      </footer>
+    </section>
+  </div>
+{/if}
 
 {#if spaceSettingsDialogRoomId}
   {@const dialogSpace = $shellChats.find((chat) => chat.roomId === spaceSettingsDialogRoomId)}

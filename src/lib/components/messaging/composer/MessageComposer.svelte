@@ -409,13 +409,13 @@
   {/if}
 
   {#if mentionSuggestions.length > 0}
-    <div bind:this={mentionListElement} class="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-64 w-auto overflow-y-auto rounded-xl border border-hairline bg-panel p-1 shadow-xl" role="listbox" aria-label="Room members">
+    <div bind:this={mentionListElement} class="absolute bottom-full left-0 right-0 z-50 max-h-64 w-auto overflow-y-auto border border-hairline bg-panel p-1 shadow-xl" role="listbox" aria-label="Room members">
       {#each mentionSuggestions as member, index (member.userId)}
         <button
           type="button"
           role="option"
           aria-selected={index === selectedMentionIndex}
-          class={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition ${index === selectedMentionIndex ? "bg-accent-soft text-accent" : "text-primary hover:bg-hover"}`}
+          class={`flex w-full items-center gap-2 px-3 py-2 text-left transition ${index === selectedMentionIndex ? "bg-accent-soft text-accent" : "text-primary hover:bg-hover"}`}
           onpointerdown={(event) => event.preventDefault()}
           onclick={() => applyMentionSuggestion(member)}
         >

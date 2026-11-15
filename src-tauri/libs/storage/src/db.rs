@@ -531,6 +531,8 @@ impl AppDb {
                     joined_members: joined_members_raw.max(0) as u64,
                     kind,
                     joined: joined_flag != 0,
+                    is_invited: false,
+                    invite_via_servers: vec![],
                     is_direct: is_direct_flag != 0,
                     children_room_ids: {
                         let raw_children_room_ids =
@@ -1048,6 +1050,7 @@ mod tests {
         message.custom_emojis = vec![MatrixCustomEmoji {
             shortcode: String::from("wave"),
             url: String::from("asset://localhost/wave.png"),
+            source_url: None,
         }];
         message.reactions = vec![MatrixReactionSummary {
             participants: Vec::new(),
@@ -1242,6 +1245,8 @@ mod tests {
             joined_members: 2,
             kind: MatrixRoomKind::Room,
             joined: true,
+            is_invited: false,
+            invite_via_servers: vec![],
             is_direct: false,
             children_room_ids: Vec::new(),
         }

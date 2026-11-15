@@ -173,6 +173,8 @@ impl<'a> NavigationIndex<'a> {
             joined_members: direct_count,
             kind: MatrixRoomKind::Space,
             joined: true,
+            is_invited: false,
+            invite_via_servers: vec![],
             is_direct: false,
             children_room_ids: vec![],
         };
@@ -190,6 +192,8 @@ impl<'a> NavigationIndex<'a> {
             joined_members: unspaced_count,
             kind: MatrixRoomKind::Space,
             joined: true,
+            is_invited: false,
+            invite_via_servers: vec![],
             is_direct: false,
             children_room_ids: vec![],
         };
@@ -374,6 +378,8 @@ mod tests {
             joined_members: 0,
             kind,
             joined: true,
+            is_invited: false,
+            invite_via_servers: vec![],
             is_direct,
             children_room_ids: children_room_ids
                 .iter()

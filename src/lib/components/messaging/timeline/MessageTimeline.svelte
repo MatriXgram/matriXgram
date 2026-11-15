@@ -17,8 +17,12 @@
     messages: TimelineMessage[];
     unreadBoundaryId?: string | null;
     unreadCount?: number;
+    showAttentionIndicator?: boolean;
+    attentionCount?: number;
+    attentionJumpRequest?: { eventId: string; nonce: number } | null;
     showJumpToLatest?: boolean;
     onJumpToLatest?: () => void;
+    onJumpToAttention?: () => void;
     roomId: string;
     selectedRoomId: string | null;
     currentUserId: string | null;
@@ -47,7 +51,7 @@
 
   let { 
     messages, 
-    unreadBoundaryId = null, unreadCount = 0, showJumpToLatest = false, onJumpToLatest,
+    unreadBoundaryId = null, unreadCount = 0, showJumpToLatest = false, showAttentionIndicator = false, attentionCount = 0, attentionJumpRequest = null, onJumpToLatest, onJumpToAttention,
     roomId, 
     selectedRoomId, 
     currentUserId,
@@ -109,6 +113,7 @@
       {onDeleteMessage}
       {onTimelineElementChange}
       {onLoadJumpContext}
+      {attentionJumpRequest}
     />
   {/if}
   {#if selectedRoomId && showJumpToLatest}
@@ -116,6 +121,13 @@
       aria-label={unreadCount > 0 ? `Jump to latest • ${unreadCount} unread messages` : "Jump to latest"} onclick={onJumpToLatest}>
       {#if unreadCount > 0}<span class="absolute -top-2 min-w-5 rounded-full bg-accent px-1.5 py-0.5 text-[11px] font-semibold text-white tabular-nums">{unreadCount > 999 ? "999+" : unreadCount}</span>{/if}
       <svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+    </button>
+  {/if}
+  {#if selectedRoomId && showAttentionIndicator}
+    <button type="button" class="absolute bottom-[4.25rem] right-5 z-20 grid size-11 cursor-pointer place-items-center rounded-full border border-sky-400/60 bg-panel text-sky-400 shadow-lg transition hover:bg-sky-400/10 hover:shadow-xl focus-visible:ring-2 focus-visible:ring-sky-400"
+      aria-label={`${attentionCount} unread mentions or replies to you`} title={`${attentionCount} unread mentions or replies to you`} onclick={onJumpToAttention}>
+      <span class="text-lg font-semibold leading-none" aria-hidden="true">@</span>
+      <span class="absolute -top-2 -right-2 min-w-5 rounded-full bg-sky-500 px-1.5 py-0.5 text-center text-[11px] font-semibold leading-4 text-white tabular-nums">{attentionCount > 999 ? "999+" : attentionCount}</span>
     </button>
   {/if}
 </section>

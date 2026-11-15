@@ -14,11 +14,12 @@ use types::chat::{
     MatrixGetEmojiPacksResponse, MatrixGetPinnedEventsRequest, MatrixGetPinnedEventsResponse,
     MatrixGetRoomMembersRequest, MatrixGetUploadLimitResponse, MatrixGetUserAvatarRequest,
     MatrixGetUserAvatarResponse, MatrixRedactMessageRequest, MatrixRedactMessageResponse,
-    MatrixReplyEventRequest, MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse,
-    MatrixRoomMember, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
-    MatrixSendMediaFileRequest, MatrixSendMediaFileResponse, MatrixSetMessagePinnedRequest,
-    MatrixSetMessagePinnedResponse, MatrixStreamChatMessagesRequest,
-    MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
+    MatrixReplyEventRequest, MatrixResolveMediaUrlRequest, MatrixResolveMediaUrlResponse,
+    MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse, MatrixRoomMember,
+    MatrixSendChatMessageRequest, MatrixSendChatMessageResponse, MatrixSendMediaFileRequest,
+    MatrixSendMediaFileResponse, MatrixSetMessagePinnedRequest, MatrixSetMessagePinnedResponse,
+    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest,
+    MatrixToggleReactionResponse,
 };
 use types::{event_paths, Paths, RoomUpdateTriggerState};
 
@@ -311,6 +312,17 @@ pub async fn matrix_get_user_avatar(
         request.user_id.as_str(),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn matrix_resolve_media_url(
+    request: MatrixResolveMediaUrlRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<MatrixResolveMediaUrlResponse, String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::resolve_media_url(&client, request.media_url.as_str()).await
 }
 
 #[tauri::command]
@@ -639,7 +651,8 @@ pub async fn matrix_open_direct_chat(
     room_update_trigger_state: State<'_, RoomUpdateTriggerState>,
 ) -> Result<types::chat::MatrixOpenDirectChatResponse, String> {
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
-    let room_id = chat::profiles::open_direct_chat(&client, &request.user_id).await?;
+    let room_id =
+        chat::profiles::open_direct_chat(&client, &request.user_id, request.encrypted).await?;
     rooms::persistence::collect_and_store_chats(&app_db, &client).await;
     let _ = room_update_trigger_state.enqueue_refresh(Some(room_id.clone()), false);
     Ok(types::chat::MatrixOpenDirectChatResponse { room_id })

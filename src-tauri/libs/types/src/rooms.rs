@@ -17,6 +17,11 @@ pub struct MatrixChatSummary {
     pub joined_members: u64,
     pub kind: MatrixRoomKind,
     pub joined: bool,
+    /// True when this room is an outstanding Matrix membership invite.
+    #[serde(default)]
+    pub is_invited: bool,
+    #[serde(default)]
+    pub invite_via_servers: Vec<String>,
     pub is_direct: bool,
     #[serde(default)]
     pub children_room_ids: Vec<String>,

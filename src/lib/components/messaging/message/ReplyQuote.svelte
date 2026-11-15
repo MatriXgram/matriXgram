@@ -7,10 +7,11 @@
     message: TimelineMessage;
     roomId: string;
     repliedMessage?: TimelineMessage;
+    currentUserId?: string | null;
     onJumpToMessage?: JumpToMessageHandler;
   }
 
-  let { message, roomId, repliedMessage, onJumpToMessage }: Props = $props();
+  let { message, roomId, repliedMessage, currentUserId = null, onJumpToMessage }: Props = $props();
 
   let fetchedMessage = $state<TimelineMessage | null>(null);
   let requestedEventId: string | null = null;
@@ -27,6 +28,9 @@
   );
   const replyTextPreview = $derived(
     resolvedMessage ? deriveReplyTextPreview(resolvedMessage) : fallback.text,
+  );
+  const repliesToCurrentUser = $derived(
+    Boolean(currentUserId && (resolvedMessage?.sender === currentUserId || (!resolvedMessage && fallback.sender === currentUserId))),
   );
   const replyFetchErrorLabel = $derived(
     /(?:404|M_NOT_FOUND)/i.test(replyFetchError)
@@ -67,6 +71,7 @@
   <button
     type="button"
     class="reply-quote mb-1 flex w-full cursor-pointer items-stretch gap-2 pr-2.5 py-1 pl-0 text-left"
+    class:reply-quote-own={repliesToCurrentUser}
     onclick={jumpToReply}
   >
     <span class="reply-quote-bar -my-1 w-[3px] shrink-0 bg-accent"></span>
@@ -101,8 +106,20 @@
   .reply-quote {
     background: var(--tg-reply-surface, color-mix(in srgb, var(--tg-accent) 12%, transparent));
   }
+  .reply-quote-own {
+    background: color-mix(in srgb, #a78bfa 34%, var(--tg-panel));
+  }
   .reply-quote:hover {
     background: color-mix(in srgb, var(--tg-reply-surface, color-mix(in srgb, var(--tg-accent) 12%, transparent)) 90%, var(--tg-accent));
+  }
+  .reply-quote-own:hover {
+    background: color-mix(in srgb, #a78bfa 42%, var(--tg-panel));
+  }
+  .reply-quote-own .reply-quote-bar {
+    background-color: #a78bfa;
+  }
+  .reply-quote-own > span:last-child > span:first-child {
+    color: #c4b5fd;
   }
   .reply-quote-bar {
     align-self: stretch;

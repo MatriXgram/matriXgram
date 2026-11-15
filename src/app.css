@@ -329,14 +329,6 @@
     pointer-events: none;
   }
 
-  /* A message that mentions the local user gets a subtle accent tint, the way
-     Telegram marks a mention. */
-  .message-mention {
-    box-shadow:
-      inset 0 0 0 1px var(--tg-accent),
-      0 1px 1px var(--tg-bubble-shadow);
-  }
-
   .reply-target-highlight {
     isolation: isolate;
   }

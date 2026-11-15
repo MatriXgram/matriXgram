@@ -142,6 +142,8 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
             joined_members,
             kind,
             joined: true,
+            is_invited: false,
+            invite_via_servers: vec![],
             is_direct,
             children_room_ids,
         });
@@ -200,10 +202,56 @@ pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixCh
                 joined_members,
                 kind,
                 joined,
+                is_invited: false,
+                invite_via_servers: vec![],
                 is_direct: direct_room_ids.contains(child_id.as_str()),
                 children_room_ids,
             });
         }
+    }
+
+    for room in client.invited_rooms() {
+        let room_id = room.room_id().to_string();
+        if seen_room_ids.contains(&room_id) {
+            continue;
+        }
+        let display_name = room
+            .display_name()
+            .await
+            .map(|name| name.to_string())
+            .unwrap_or_else(|_| room_id.clone());
+        let invite_via_servers = room
+            .invite_details()
+            .await
+            .ok()
+            .map(|details| vec![details.inviter_id.server_name().to_string()])
+            .unwrap_or_default();
+        chats.push(MatrixChatSummary {
+            last_message_preview: None,
+            last_message_ts: None,
+            unread_count: 0,
+            is_pinned: false,
+            is_muted: false,
+            room_id: room_id.clone(),
+            display_name,
+            image_url: None,
+            encrypted: room
+                .latest_encryption_state()
+                .await
+                .map(|state| state.is_encrypted())
+                .unwrap_or(false),
+            joined_members: room.joined_members_count(),
+            kind: if room.is_space() {
+                MatrixRoomKind::Space
+            } else {
+                MatrixRoomKind::Room
+            },
+            joined: false,
+            is_invited: true,
+            invite_via_servers,
+            is_direct: direct_room_ids.contains(room_id.as_str()),
+            children_room_ids: vec![],
+        });
     }
 
     chats.sort_by(|a, b| {

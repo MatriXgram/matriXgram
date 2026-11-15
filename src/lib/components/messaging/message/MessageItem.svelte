@@ -85,7 +85,6 @@
 
   function showProfile(avatarUrl?: string | null) { openUserProfile({ roomId, userId: message.sender, displayName: message.senderDisplayName, avatarUrl }); }
 
-  const senderIdentity = $derived(message.sender);
   const isOwn = $derived(Boolean(currentUserId) && message.sender === currentUserId);
   $effect(() => {
     if (!actionMenuPosition && !reactionBarPosition) {
@@ -272,7 +271,7 @@
       {#if message.isDeleted}
         <p class="px-2 py-1 text-[13px] italic opacity-70">This message was deleted</p>
       {:else}
-        <ReplyQuote {message} {roomId} {repliedMessage} {onJumpToMessage} />
+        <ReplyQuote {message} {roomId} {repliedMessage} {currentUserId} {onJumpToMessage} />
         <MessageBody
           {message}
           {imageMessages}
@@ -293,8 +292,8 @@
           {#if message.threadReplyCount > 0}
             <span class="font-semibold">{message.threadReplyCount} replies</span>
           {/if}
-          <span class="min-w-0 max-w-[24rem] flex-1 truncate" title={message.sender}>{senderIdentity}</span>
           <span class="shrink-0 whitespace-nowrap">{toClockTime(message.timestamp)}</span>
+          <MessageEncryptionState {message} />
           {#if message.sendState === "sending"}
             <svg
               viewBox="0 0 24 24"
@@ -323,7 +322,6 @@
     </div>
 
     <MessageSendState {message} {isSending} onRetry={onRetry} onRemove={message.messageType && message.messageType !== "m.text" ? onRemoveFailedMessage : undefined} />
-    <MessageEncryptionState {message} />
   </div>
 
 

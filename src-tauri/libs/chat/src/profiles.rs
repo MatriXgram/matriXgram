@@ -56,17 +56,39 @@ pub async fn get_user_profile(
     })
 }
 
-pub async fn open_direct_chat(client: &Client, user_id: &str) -> Result<String, String> {
+pub async fn open_direct_chat(
+    client: &Client,
+    user_id: &str,
+    encrypted: bool,
+) -> Result<String, String> {
     let user = protocol::parse_user_id(user_id)?;
     // Serialize lookup + create so repeated clicks cannot create duplicate DMs.
     static DM_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _guard = DM_LOCK.lock().await;
     let room = match client.get_dm_room(&user) {
         Some(room) => room,
-        None => client
-            .create_dm(&user)
-            .await
-            .map_err(|error| format!("Failed to start direct chat: {error}"))?,
+        None => {
+            use matrix_sdk::ruma::api::client::room::create_room::v3::{Request, RoomPreset};
+            use matrix_sdk::ruma::events::{
+                room::encryption::RoomEncryptionEventContent, InitialStateEvent,
+            };
+
+            let mut request = Request::new();
+            request.invite = vec![user];
+            request.is_direct = true;
+            request.preset = Some(RoomPreset::TrustedPrivateChat);
+            if encrypted {
+                request.initial_state = vec![InitialStateEvent::with_empty_state_key(
+                    RoomEncryptionEventContent::with_recommended_defaults(),
+                )
+                .to_raw_any()];
+            }
+
+            client
+                .create_room(request)
+                .await
+                .map_err(|error| format!("Failed to start direct chat: {error}"))?
+        }
     };
     Ok(room.room_id().to_string())
 }

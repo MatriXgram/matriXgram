@@ -1,6 +1,7 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { matrixDownloadFile, matrixResolveVideoUrl } from "$lib/chats/api";
+  import { matrixDownloadFile, matrixGetReplyEvent, matrixGetUserAvatar, matrixResolveMediaUrl, matrixResolveVideoUrl } from "$lib/chats/api";
+  import { senderAvatarCache } from "$lib/components/navigation/shared/image-cache.svelte";
   import { openUserProfile } from "$lib/chats/user-profile";
   import { userIdFromMatrixLink } from "$lib/chats/matrixLinks";
   import { stripMxReplyBlock, stripPlainReplyFallback } from "../shared";
@@ -96,6 +97,122 @@
     return { destroy() { element.removeEventListener("click", handleClick); element.removeEventListener("contextmenu", handleContextMenu); } };
   }
 
+  function mentionAvatars(element: HTMLDivElement) {
+    let active = true;
+    const avatarImages: HTMLImageElement[] = [];
+    const styledLinks: HTMLAnchorElement[] = [];
+    for (const link of element.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      const userId = userIdFromMatrixLink(link.getAttribute("href") ?? "");
+      if (!userId) continue;
+      if (!link.classList.contains("matrix-mention")) {
+        link.classList.add("matrix-mention");
+        styledLinks.push(link);
+      }
+      if (link.querySelector(".matrix-mention-avatar")) continue;
+
+      const avatar = document.createElement("img");
+      avatar.className = "matrix-mention-avatar";
+      avatar.alt = "";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.loading = "lazy";
+      avatarImages.push(avatar);
+      link.prepend(avatar);
+
+      const displayLabel = link.textContent?.trim().replace(/^@/, "") ?? "";
+      const initial = Array.from(displayLabel)[0]?.toLocaleUpperCase() || userId.replace(/^@/, "")[0]?.toLocaleUpperCase() || "•";
+      const showInitial = () => {
+        if (!active || !link.isConnected || !avatar.isConnected) return;
+        const fallback = document.createElement("span");
+        fallback.className = "matrix-mention-avatar-fallback";
+        fallback.textContent = initial;
+        fallback.setAttribute("aria-hidden", "true");
+        avatar.replaceWith(fallback);
+      };
+      avatar.addEventListener("error", showInitial, { once: true });
+
+      const cacheKey = `${roomId}\u0000${userId}`;
+      void senderAvatarCache.getOrLoad(cacheKey, () => matrixGetUserAvatar(roomId, userId)).then((url) => {
+        if (!active || !link.isConnected) return;
+        if (url) avatar.src = url;
+        else showInitial();
+      }).catch(showInitial);
+    }
+
+    return {
+      destroy() {
+        active = false;
+        for (const avatar of avatarImages) avatar.remove();
+        for (const link of styledLinks) link.classList.remove("matrix-mention");
+      },
+    };
+  }
+
+  function customEmojiFallback(element: HTMLDivElement) {
+    let active = true;
+    const cleanups: (() => void)[] = [];
+    const brokenImage = (image: HTMLImageElement) => {
+      if (!image.isConnected || image.dataset.fallbackRendered === "true") return;
+      if (!image.hasAttribute("data-mx-emoticon") && !image.hasAttribute("data_mx_emoticon")) return;
+      image.dataset.fallbackRendered = "true";
+      const label = image.getAttribute("alt")?.trim() || image.getAttribute("title")?.trim() || "Custom emoji";
+      const fallback = document.createElement("span");
+      fallback.className = "custom-emoji-unavailable";
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      icon.setAttribute("viewBox", "0 0 16 16");
+      icon.setAttribute("aria-hidden", "true");
+      icon.classList.add("custom-emoji-unavailable-icon");
+      const frame = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      frame.setAttribute("x", "1.5"); frame.setAttribute("y", "1.5");
+      frame.setAttribute("width", "13"); frame.setAttribute("height", "13");
+      frame.setAttribute("rx", "1.5");
+      const mountain = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      mountain.setAttribute("d", "m3.5 11 3-3 2 2 1.5-1.5 2.5 2.5");
+      const slash = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      slash.setAttribute("d", "m2 2 12 12");
+      icon.append(frame, mountain, slash);
+      const text = document.createElement("span");
+      text.textContent = label;
+      fallback.append(icon, text);
+      fallback.title = label;
+      fallback.setAttribute("role", "img");
+      fallback.setAttribute("aria-label", `${label} unavailable`);
+      image.replaceWith(fallback);
+    };
+
+    for (const image of element.querySelectorAll<HTMLImageElement>("img")) {
+      const onError = () => {
+        const source = image.getAttribute("src") ?? "";
+        const shortcode = (image.getAttribute("alt") ?? "").trim().replace(/^:|:$/g, "").toLocaleLowerCase();
+        const storedSource = message.customEmojis.find((emoji) =>
+          emoji.shortcode.trim().replace(/^:|:$/g, "").toLocaleLowerCase() === shortcode,
+        )?.sourceUrl;
+        const mxcSource = source.startsWith("mxc://") ? source : storedSource?.startsWith("mxc://") ? storedSource : null;
+        if (mxcSource && image.dataset.authenticatedRetry !== "true") {
+          image.dataset.authenticatedRetry = "true";
+          image.removeAttribute("src");
+          void matrixResolveMediaUrl(mxcSource).then((url) => {
+            if (!active || !image.isConnected) return;
+            if (url) image.src = url;
+            else brokenImage(image);
+          }).catch(() => brokenImage(image));
+          return;
+        }
+        brokenImage(image);
+      };
+      image.addEventListener("error", onError);
+      cleanups.push(() => image.removeEventListener("error", onError));
+      const source = image.getAttribute("src") ?? "";
+      if (source.startsWith("mxc://") || (image.complete && image.naturalWidth === 0)) onError();
+    }
+
+    return {
+      destroy() {
+        active = false;
+        for (const cleanup of cleanups) cleanup();
+      },
+    };
+  }
+
   function codeControls(element: HTMLDivElement) {
     const cleanups: (() => void)[] = [];
     for (const pre of element.querySelectorAll("pre")) {
@@ -141,6 +258,8 @@
   );
 
   let imageError = $state(false);
+  let recoveredImageUrl = $state<string | null>(null);
+  let imageRecoveryAttempted = false;
   let imageViewerOpen = $state(false);
   let selectedViewerImageIndex = $state(-1);
   let imageCaptionExpanded = $state(false);
@@ -154,6 +273,19 @@
   let imagePanStart: { x: number; y: number; left: number; top: number } | null = null;
   const activeViewerMessage = $derived(imageMessages[selectedViewerImageIndex] ?? message);
   const activeViewerCaption = $derived(imageCaption(activeViewerMessage.body));
+  const displayImageUrl = $derived(recoveredImageUrl ?? message.imageUrl);
+
+  $effect(() => {
+    const eventId = message.eventId;
+    if (message.messageType !== "m.image" || message.imageUrl || !eventId || imageRecoveryAttempted) return;
+    imageRecoveryAttempted = true;
+    void matrixGetReplyEvent(roomId, eventId).then((freshMessage) => {
+      if (message.eventId === eventId && freshMessage.imageUrl) recoveredImageUrl = freshMessage.imageUrl;
+      else if (message.eventId === eventId) imageError = true;
+    }).catch(() => {
+      if (message.eventId === eventId) imageError = true;
+    });
+  });
 
   $effect(() => {
     const element = imageCaptionElement;
@@ -218,6 +350,33 @@
     viewerImageSize = null;
   }
 
+  async function retryMessageImage(event: Event) {
+    const eventId = message.eventId;
+    const image = event.currentTarget;
+    if (!(image instanceof HTMLImageElement) || !eventId || imageRecoveryAttempted) {
+      imageError = true;
+      return;
+    }
+    imageRecoveryAttempted = true;
+    try {
+      const freshMessage = await matrixGetReplyEvent(roomId, eventId);
+      if (message.eventId !== eventId || !freshMessage.imageUrl) {
+        imageError = true;
+        return;
+      }
+      recoveredImageUrl = freshMessage.imageUrl;
+      imageError = false;
+      // Force WebView to retry even when the recovered cache path is identical
+      // to the stale URL that just failed.
+      image.removeAttribute("src");
+      requestAnimationFrame(() => {
+        if (image.isConnected && message.eventId === eventId) image.src = freshMessage.imageUrl!;
+      });
+    } catch {
+      imageError = true;
+    }
+  }
+
   function handleImageViewerKeydown(event: KeyboardEvent) {
     if (imageViewerOpen && event.key === "Escape") {
       closeImageViewer();
@@ -272,6 +431,7 @@
     message.formattedBody ? stripMxReplyBlock(message.formattedBody) : null,
   );
   const renderedPlainBody = $derived(stripPlainReplyFallback(message));
+  const isUnsupportedMessage = $derived(message.body.startsWith("Unsupported message type:") || message.body === "Unsupported message");
 
   /// Resolve the video URL on demand when the user starts playback. The video
   /// element is always rendered (with the thumbnail as poster); the API is only
@@ -404,9 +564,9 @@
 
 {#if message.messageType === "m.image"}
   <figure class="message-image-body space-y-2 text-[14px] leading-[1.35] font-normal">
-    {#if message.imageUrl && !imageError}
+    {#if displayImageUrl && !imageError}
       <img
-        src={message.imageUrl}
+        src={displayImageUrl}
         alt={message.body || "Image"}
         loading="lazy"
         role="button"
@@ -426,7 +586,7 @@
         height={message.imageHeight ?? undefined}
         class="message-image-preview cursor-zoom-in preset-outlined-surface-300-700 bg-surface-100-900"
         class:message-image-preview-with-header={hasSenderHeader}
-        onerror={() => (imageError = true)}
+        onerror={retryMessageImage}
         oncontextmenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -609,12 +769,12 @@
   </div>
 {:else if renderedFormattedBody}
   {#key renderedFormattedBody}
-    <div use:mentionLinks use:codeControls class="message-formatted-body min-w-0 max-w-full whitespace-pre-wrap break-words text-[14px] leading-[1.35] font-normal">
+    <div use:mentionLinks use:mentionAvatars use:customEmojiFallback use:codeControls class="message-formatted-body min-w-0 max-w-full whitespace-pre-wrap break-words text-[14px] leading-[1.35] font-normal">
       {@html renderedFormattedBody}
     </div>
   {/key}
 {:else}
-  <p class="whitespace-pre-wrap break-words text-[14px] leading-[1.35] font-normal">
+  <p class="whitespace-pre-wrap break-words text-[14px] leading-[1.35] font-normal" class:text-danger={isUnsupportedMessage}>
     {#each splitLinks(renderedPlainBody) as part, index}{#if part.url}<a href={part.url} class="cursor-pointer text-accent underline decoration-accent/50 underline-offset-2 hover:decoration-accent" onclick={(event) => { event.preventDefault(); void openUrl(part.url!); }} oncontextmenu={(event) => showLinkMenu(event, part.url!)}>{part.text}</a>{:else}{part.text}{/if}{/each}
   </p>
 {/if}
@@ -627,16 +787,41 @@
 
 <style>
   .message-formatted-body :global(a.matrix-mention) {
-    color: var(--color-accent, #6889ff);
-    background: color-mix(in oklab, var(--color-accent, #6889ff) 16%, transparent);
-    border-radius: 0.25rem;
-    padding-inline: 0.08em;
-    text-decoration: none;
+    color: var(--tg-accent, #6889ff);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--tg-accent, #6889ff) 75%, transparent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
     cursor: pointer;
   }
   .message-formatted-body :global(a.matrix-mention:hover) {
-    background: color-mix(in oklab, var(--color-accent, #6889ff) 25%, transparent);
-    text-decoration: underline;
+    color: color-mix(in srgb, var(--tg-accent, #6889ff) 82%, white);
+    text-decoration-thickness: 2px;
+  }
+  .message-formatted-body :global(.matrix-mention-avatar) {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    margin-right: 0.22em;
+    border-radius: 50%;
+    background: var(--tg-panel-alt);
+    object-fit: cover;
+    vertical-align: -0.16em;
+  }
+  .message-formatted-body :global(.matrix-mention-avatar-fallback) {
+    display: inline-grid;
+    width: 1em;
+    height: 1em;
+    margin-right: 0.22em;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 50%;
+    background: var(--tg-panel-alt);
+    color: var(--tg-text-secondary);
+    font-size: 0.72em;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: -0.16em;
   }
   .image-viewer-scrollbar {
     scrollbar-width: none;
@@ -702,5 +887,37 @@
   .message-formatted-body :global(img[data_mx_emoticon]) {
     display: inline-block;
     vertical-align: text-bottom;
+  }
+  .message-formatted-body :global(.custom-emoji-unavailable) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    max-width: 8em;
+    margin-inline: 0.08em;
+    padding: 0.05em 0.32em;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--tg-border) 75%, transparent);
+    background: color-mix(in srgb, var(--tg-panel) 80%, transparent);
+    color: var(--tg-text-secondary);
+    font-size: 0.72em;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: 0.08em;
+  }
+  .message-formatted-body :global(.custom-emoji-unavailable-icon) {
+    width: 1em;
+    height: 1em;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.4;
+  }
+  .message-formatted-body :global(.custom-emoji-unavailable > span) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

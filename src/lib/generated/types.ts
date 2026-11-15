@@ -69,6 +69,7 @@ export type MatrixMessageVerificationStatus = "unknown" | "verified" | "unverifi
 export interface MatrixCustomEmoji {
   shortcode: string;
   url: string;
+  sourceUrl?: string | null;
 }
 
 export interface MatrixPickerCustomEmoji {
@@ -214,6 +215,10 @@ export interface MatrixGetUserAvatarRequest {
   userId: string;
 }
 
+export interface MatrixResolveMediaUrlRequest {
+  mediaUrl: string;
+}
+
 export interface MatrixCopyImageToClipboardRequest {
   imageUrl: string;
 }
@@ -270,6 +275,10 @@ export interface MatrixGetUserAvatarResponse {
   imageUrl?: string | null;
 }
 
+export interface MatrixResolveMediaUrlResponse {
+  imageUrl?: string | null;
+}
+
 export interface MatrixGetEmojiPacksResponse {
   customEmoji: MatrixPickerCustomEmoji[];
 }
@@ -287,6 +296,7 @@ export interface MatrixUserProfileResponse {
 
 export interface MatrixOpenDirectChatRequest {
   userId: string;
+  encrypted: boolean;
 }
 
 export interface MatrixOpenDirectChatResponse {
@@ -348,6 +358,8 @@ export interface MatrixChatSummary {
   joinedMembers: number;
   kind: MatrixRoomKind;
   joined: boolean;
+  isInvited: boolean;
+  inviteViaServers: string[];
   isDirect: boolean;
   childrenRoomIds: string[];
   lastMessagePreview?: string | null;

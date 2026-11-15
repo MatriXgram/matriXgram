@@ -106,6 +106,8 @@
 
   async function loadRooms(reset = true) {
     if (!selectedServer || (loading && !reset)) return;
+    const requestedCursor = reset ? undefined : nextBatch ?? undefined;
+    if (!reset && !requestedCursor) return;
     const sequence = ++searchSequence;
     const cacheKey = `${selectedServer.toLowerCase()}\n${query.trim().toLowerCase()}`;
     loading = true;
@@ -122,12 +124,22 @@
       const result = await matrixSearchPublicRooms({
         serverName: selectedServer,
         searchTerm: query.trim() || undefined,
-        since: reset ? undefined : nextBatch ?? undefined,
+        since: requestedCursor,
         limit: 20,
       });
       if (sequence !== searchSequence) return;
-      rooms = reset ? result.rooms : [...rooms, ...result.rooms];
-      nextBatch = result.nextBatch ?? null;
+      if (reset) {
+        rooms = result.rooms;
+      } else {
+        // Public directories may repeat rooms between pages. Keep the list
+        // stable and keyed uniquely so a repeated page does not look like a
+        // failed load (or cause duplicate-key rendering issues).
+        const knownRoomIds = new Set(rooms.map((room) => room.roomId));
+        rooms = [...rooms, ...result.rooms.filter((room) => !knownRoomIds.has(room.roomId))];
+      }
+      // A broken directory can return its current pagination token again.
+      // Stop offering the same page forever in that case.
+      nextBatch = result.nextBatch && result.nextBatch !== requestedCursor ? result.nextBatch : null;
       roomCache.set(cacheKey, { rooms, nextBatch });
     } catch (cause) {
       if (sequence !== searchSequence) return;

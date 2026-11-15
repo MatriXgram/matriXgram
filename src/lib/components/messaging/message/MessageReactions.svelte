@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import { matrixResolveMediaUrl } from "$lib/chats/api";
   import { loadUserProfile } from "$lib/chats/user-profile";
   import ReactionParticipant from "./ReactionParticipant.svelte";
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
@@ -33,6 +34,7 @@
   let popup = $state<HTMLDivElement | null>(null);
   let position = $state({ x: 8, y: 8 });
   let popupMaxHeight = $state(320);
+  let failedReactionImages = $state(new Set<string>());
   let closeTimer: ReturnType<typeof setTimeout>;
   const hoveredReaction = $derived(message.reactions.find((reaction) => reaction.key === hoveredKey));
   function keepOpen() { clearTimeout(closeTimer); }
@@ -84,6 +86,31 @@
 
     onToggleReaction?.(message, key);
   }
+
+  function resolveReactionImage(image: HTMLImageElement, mediaUrl: string) {
+    let active = true;
+    let requestUrl = mediaUrl;
+    const resolve = (url: string) => {
+      requestUrl = url;
+      if (url.startsWith("mxc://")) {
+        image.removeAttribute("src");
+        void matrixResolveMediaUrl(url).then((resolved) => {
+          if (active && resolved) image.src = resolved;
+        }).catch(() => {});
+      }
+    };
+    resolve(mediaUrl);
+    return {
+      update(nextUrl: string) {
+        if (nextUrl !== requestUrl) resolve(nextUrl);
+      },
+      destroy() { active = false; },
+    };
+  }
+
+  function markReactionImageFailed(key: string) {
+    failedReactionImages = new Set(failedReactionImages).add(key);
+  }
 </script>
 
 {#if message.eventId}
@@ -105,12 +132,14 @@
         class:border-hairline-strong={!ownReaction(reaction)}
         onclick={() => handleReactionClick(reaction.key)}
       >
-        {#if reactionEmojiUrl}
+        {#if reactionEmojiUrl && !failedReactionImages.has(reaction.key)}
           <img
+            use:resolveReactionImage={reactionEmojiUrl}
             src={reactionEmojiUrl}
             alt={reaction.key}
             class="inline-block size-3.5 align-text-bottom"
             loading="lazy"
+            onerror={() => markReactionImageFailed(reaction.key)}
           />
         {:else}
           <span class="inline-block text-[13px] leading-none align-text-bottom">{reaction.key}</span>

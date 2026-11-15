@@ -54,7 +54,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
   import ForwardRoomPicker from "$lib/components/messaging/forward/ForwardRoomPicker.svelte";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
-  import { stripMxReplyBlock } from "$lib/components/messaging/shared";
+import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shared";
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
@@ -110,6 +110,25 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
   let highestReadTimestamp = 0;
   const consumedUnread = new Set<string>();
   const newUnread = new Set<string>();
+  const unreadAttentionMessages = $derived.by(() => {
+    const userId = $shellCurrentUserId;
+    if (!userId || unreadRemaining <= 0) return [] as TimelineMessage[];
+    const startIndex = unreadBoundaryId ? messages.findIndex((message) => message.eventId === unreadBoundaryId) : -1;
+    const unreadMessages = messages.filter((message, index) => {
+      if (message.sender === userId || !message.eventId) return false;
+      if (consumedUnread.has(message.eventId)) return false;
+      return newUnread.has(message.eventId) || (startIndex >= 0 && index >= startIndex);
+    });
+    return unreadMessages.filter((message) => {
+      if (message.mentionsMe) return true;
+      if (!message.inReplyToEventId) return false;
+      const target = messages.find((candidate) => candidate.eventId === message.inReplyToEventId);
+      return target?.sender === userId || replyFallback(message).sender === userId;
+    });
+  });
+  const hasUnreadAttention = $derived(unreadAttentionMessages.length > 0);
+  let attentionJumpRequest = $state<{ eventId: string; nonce: number } | null>(null);
+  let attentionJumpNonce = 0;
   let readTimer: ReturnType<typeof setTimeout>;
   let readRequestInFlight = false;
 
@@ -1652,6 +1671,24 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
       scheduleReadVisible();
     }
   }
+
+  function jumpToNextAttention() {
+    if (!timelineElement || unreadAttentionMessages.length === 0) return;
+    const viewport = timelineElement.getBoundingClientRect();
+    const visibleNodes = Array.from(timelineElement.querySelectorAll<HTMLElement>("[data-message-event-id]"))
+      .filter((node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.bottom > viewport.top && rect.top < viewport.bottom;
+      });
+    const bottomVisibleNode = visibleNodes.at(-1);
+    const bottomVisibleIndex = bottomVisibleNode
+      ? messages.findIndex((message) => message.eventId === bottomVisibleNode.dataset.messageEventId)
+      : -1;
+    const next = unreadAttentionMessages.find((message) =>
+      messages.findIndex((candidate) => candidate.eventId === message.eventId) > bottomVisibleIndex,
+    ) ?? unreadAttentionMessages[0];
+    if (next.eventId) attentionJumpRequest = { eventId: next.eventId, nonce: ++attentionJumpNonce };
+  }
   $effect(() => {
     if (messages.length && readPositionReady) {
       if (initialPositionPending) void positionInitialRead();
@@ -1764,8 +1801,12 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
       selectedRoomId={$shellSelectedRoomId}
       {unreadBoundaryId}
       unreadCount={unreadRemaining}
+      showAttentionIndicator={hasUnreadAttention}
+      attentionCount={unreadAttentionMessages.length}
+      {attentionJumpRequest}
       showJumpToLatest={!initialPositionPending && (!isScrolledToBottom || Boolean(nextTo) || unreadRemaining > 0)}
       onJumpToLatest={jumpToLatest}
+      onJumpToAttention={jumpToNextAttention}
       currentUserId={$shellCurrentUserId || null}
       pickerCustomEmoji={$shellPickerCustomEmoji}
       roomEncrypted={selectedRoomEncrypted()}

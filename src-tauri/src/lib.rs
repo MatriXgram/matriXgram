@@ -191,6 +191,7 @@ pub fn run() {
             commands::chat::matrix_stream_chat_messages,
             commands::chat::matrix_get_emoji_packs,
             commands::chat::matrix_get_user_avatar,
+            commands::chat::matrix_resolve_media_url,
             commands::chat::matrix_get_user_profile,
             commands::chat::matrix_open_direct_chat,
             commands::chat::matrix_send_chat_message,

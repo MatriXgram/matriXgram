@@ -123,6 +123,8 @@ mod tests {
             joined_members: 2,
             kind: MatrixRoomKind::Room,
             joined: true,
+            is_invited: false,
+            invite_via_servers: vec![],
             is_direct: false,
             children_room_ids: vec![],
         }

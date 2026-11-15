@@ -187,7 +187,7 @@ pub fn parse_timeline_message(
 
         let body = match msgtype {
             Some(msgtype) if KNOWN_MESSAGE_TYPES.contains(&msgtype) => body,
-            Some(msgtype) => format!("Unsupported message type: {msgtype}"),
+            Some(_) => String::from("Unsupported message"),
             None => body,
         };
 
@@ -624,7 +624,7 @@ mod tests {
         )
         .expect("message should parse");
         assert_eq!(parsed.message_type, Some("m.location".to_owned()));
-        assert_eq!(parsed.body, "Unsupported message type: m.location");
+        assert_eq!(parsed.body, "Unsupported message");
     }
 
     #[test]

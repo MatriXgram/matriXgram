@@ -17,9 +17,9 @@ use crate::send::{
 };
 use types::chat::{
     MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarResponse,
-    MatrixPickerCustomEmoji, MatrixResolveVideoUrlResponse, MatrixSendChatMessageResponse,
-    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
-    MatrixToggleReactionResponse,
+    MatrixPickerCustomEmoji, MatrixResolveMediaUrlResponse, MatrixResolveVideoUrlResponse,
+    MatrixSendChatMessageResponse, MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest,
+    MatrixStreamChatMessagesResponse, MatrixToggleReactionResponse,
 };
 use types::EventSink;
 
@@ -166,6 +166,17 @@ pub async fn get_user_avatar(
         user_id: user_id.to_string(),
         image_url,
     })
+}
+
+pub async fn resolve_media_url(
+    client: &Client,
+    media_url: &str,
+) -> Result<MatrixResolveMediaUrlResponse, String> {
+    if !media_url.starts_with("mxc://") {
+        return Err(String::from("Only Matrix media URLs can be resolved"));
+    }
+    let image_url = crate::media::cache_mxc_media_to_local_path(client, media_url).await;
+    Ok(MatrixResolveMediaUrlResponse { image_url })
 }
 
 /// The freshest known avatar mxc for a user: the event-fed source cache when

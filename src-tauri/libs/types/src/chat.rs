@@ -28,6 +28,8 @@ pub enum MatrixMessageVerificationStatus {
 pub struct MatrixCustomEmoji {
     pub shortcode: String,
     pub url: String,
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -249,6 +251,12 @@ pub struct MatrixGetUserAvatarRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MatrixResolveMediaUrlRequest {
+    pub media_url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatrixCopyImageToClipboardRequest {
     pub image_url: String,
 }
@@ -329,6 +337,12 @@ pub struct MatrixGetUserAvatarResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MatrixResolveMediaUrlResponse {
+    pub image_url: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatrixGetEmojiPacksResponse {
     pub custom_emoji: Vec<MatrixPickerCustomEmoji>,
 }
@@ -352,6 +366,12 @@ pub struct MatrixUserProfileResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MatrixOpenDirectChatRequest {
     pub user_id: String,
+    #[serde(default = "default_true")]
+    pub encrypted: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Serialize)]

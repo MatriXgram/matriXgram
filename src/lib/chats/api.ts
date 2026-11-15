@@ -98,6 +98,20 @@ export async function matrixGetUserAvatar(roomId: string, userId: string): Promi
   return normalizeImageUrl(response.imageUrl);
 }
 
+const mediaResolveRequests = new Map<string, Promise<string | null>>();
+export async function matrixResolveMediaUrl(mediaUrl: string): Promise<string | null> {
+  if (!mediaUrl.startsWith("mxc://")) return normalizeImageUrl(mediaUrl);
+  const pending = mediaResolveRequests.get(mediaUrl);
+  if (pending) return pending;
+  const request = invokeMatrixCommand<import("./types").MatrixResolveMediaUrlResponse>(
+    "matrix_resolve_media_url", { request: { mediaUrl } },
+  ).then((response) => normalizeImageUrl(response.imageUrl)).finally(() => {
+    mediaResolveRequests.delete(mediaUrl);
+  });
+  mediaResolveRequests.set(mediaUrl, request);
+  return request;
+}
+
 export async function matrixGetChatNavigation(
   input?: MatrixGetChatNavigationRequest,
 ): Promise<MatrixGetChatNavigationResponse> {
@@ -385,9 +399,12 @@ export async function matrixSearchPublicRooms(input: import("./types").MatrixSea
   if (pending) return pending;
 
   const request = invokeMatrixCommand<PublicRoomsResult>("matrix_search_public_rooms", { request: input })
-    .then((response) => ({
+    .then(async (response) => ({
       ...response,
-      rooms: response.rooms.map((room) => ({ ...room, avatarUrl: normalizePublicRoomAvatar(room.avatarUrl) })),
+      rooms: await Promise.all(response.rooms.map(async (room) => ({
+        ...room,
+        avatarUrl: await resolvePublicRoomAvatar(room.avatarUrl),
+      }))),
     }))
     .then((response) => {
       if (!input.since) publicRoomsCache.set(key, response);
@@ -404,17 +421,9 @@ export function primeMatrixPublicRooms(serverName: string) {
   void matrixSearchPublicRooms({ serverName, limit: 20 }).catch(() => {});
 }
 
-function normalizePublicRoomAvatar(imageUrl: string | null | undefined): string | null {
+async function resolvePublicRoomAvatar(imageUrl: string | null | undefined): Promise<string | null> {
   if (!imageUrl?.startsWith("mxc://")) return normalizeImageUrl(imageUrl);
-  const match = /^mxc:\/\/([^/]+)\/(.+)$/.exec(imageUrl);
-  if (!match) return null;
-  const [, server, mediaId] = match;
-  const localServer = /^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0)(:\d+)?$/i.test(server);
-  const scheme = localServer ? "http" : "https";
-  // The authenticated v1 download route cannot be used by an <img> request
-  // because the browser doesn't have the Matrix access token. Use the legacy
-  // public download route for public room avatars.
-  return `${scheme}://${server}/_matrix/media/v3/thumbnail/${encodeURIComponent(server)}/${encodeURIComponent(mediaId)}?width=96&height=96&method=crop&allow_redirect=true`;
+  return matrixResolveMediaUrl(imageUrl).catch(() => null);
 }
 
 
@@ -425,9 +434,9 @@ export async function matrixGetUserProfile(roomId: string, userId: string) {
   return { ...profile, avatarUrl: normalizeImageUrl(profile.avatarUrl) };
 }
 
-export async function matrixOpenDirectChat(userId: string) {
+export async function matrixOpenDirectChat(userId: string, encrypted = true) {
   return invokeMatrixCommand<import("./types").MatrixOpenDirectChatResponse>(
-    "matrix_open_direct_chat", { request: { userId } },
+    "matrix_open_direct_chat", { request: { userId, encrypted } },
   );
 }
 
@@ -461,7 +470,10 @@ export async function matrixGetReplyEvent(roomId: string, eventId: string) {
   if (!pending) {
     pending = invokeMatrixCommand<MatrixChatMessage>("matrix_get_reply_event", {
       request: { roomId, eventId },
-    }).then(normalizeMessageImageUrl);
+    }).then(normalizeMessageImageUrl).then((message) => {
+      if (message.messageType === "m.image" && !message.imageUrl) replyEventCache.delete(key);
+      return message;
+    });
     replyEventCache.set(key, pending);
     while (replyEventCache.size > 256) {
       const oldest = replyEventCache.keys().next().value;

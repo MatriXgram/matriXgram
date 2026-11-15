@@ -99,11 +99,65 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
 ) -> (Vec<MatrixChatMessage>, bool) {
     let mut messages: Vec<MatrixChatMessage> = Vec::new();
     let mut had_utd = false;
-    let mut resolved_emoji_urls: HashMap<String, Option<String>> = HashMap::new();
     let mut sender_display_names: HashMap<String, Option<String>> = HashMap::new();
     let local_user_id = client.user_id().map(|user_id| user_id.to_string());
 
     for timeline in chunk {
+        let Ok(event) = timeline.raw().deserialize_as::<Value>() else {
+            continue;
+        };
+        let event_type = event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let is_message_event = matches!(event_type, "m.room.message" | "m.room.encrypted");
+        let has_redaction_marker = event
+            .get("unsigned")
+            .and_then(|unsigned| unsigned.get("redacted_because"))
+            .is_some();
+        let has_empty_message_content = event_type == "m.room.message"
+            && event
+                .get("content")
+                .and_then(Value::as_object)
+                .is_some_and(|content| content.is_empty());
+        if is_message_event && (has_redaction_marker || has_empty_message_content) {
+            messages.push(MatrixChatMessage {
+                event_id: event
+                    .get("event_id")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                in_reply_to_event_id: None,
+                sender: event
+                    .get("sender")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+                    .to_owned(),
+                timestamp: event.get("origin_server_ts").and_then(Value::as_u64),
+                body: String::new(),
+                formatted_body: None,
+                message_type: Some(String::from("m.text")),
+                image_url: None,
+                image_width: None,
+                image_height: None,
+                thumbnail_url: None,
+                custom_emojis: Vec::new(),
+                reactions: Vec::new(),
+                encrypted: false,
+                decryption_status: MatrixMessageDecryptionStatus::Plaintext,
+                verification_status: MatrixMessageVerificationStatus::Unknown,
+                sender_display_name: None,
+                edited_at: None,
+                is_deleted: true,
+                thread_root_id: None,
+                thread_reply_count: 0,
+                mentions_me: false,
+                is_sticker: false,
+                is_voice: false,
+                audio_duration_ms: None,
+            });
+            continue;
+        }
+
         let encryption_info = timeline.encryption_info();
         let is_utd = timeline.kind.is_utd();
         let decryption_status = if is_utd {
@@ -122,10 +176,6 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             Some(VerificationState::Verified) => MatrixMessageVerificationStatus::Verified,
             Some(VerificationState::Unverified(_)) => MatrixMessageVerificationStatus::Unverified,
             None => MatrixMessageVerificationStatus::Unknown,
-        };
-
-        let Ok(event) = timeline.raw().deserialize_as::<Value>() else {
-            continue;
         };
 
         if let Some(parsed_reaction) = parse_reaction_event(&event) {
@@ -203,38 +253,21 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
             let mut custom_emoji_urls_by_source = HashMap::<String, String>::new();
             for emoji in parsed.custom_emojis {
                 let source_url = emoji.url.clone();
-                let resolved_url = match resolved_emoji_urls.get(emoji.url.as_str()) {
-                    Some(cached) => cached.clone(),
-                    None => {
-                        let resolved = media_resolver
-                            .resolve_pack_media_url(client, emoji.url.as_str())
-                            .await;
-                        resolved_emoji_urls.insert(emoji.url.clone(), resolved.clone());
-                        resolved
-                    }
-                };
-
-                let Some(resolved_url) = resolved_url else {
-                    continue;
-                };
-
                 custom_emojis.push(MatrixCustomEmoji {
                     shortcode: emoji.shortcode,
-                    url: resolved_url,
+                    // Keep the MXC URL in the event model. Resolving it here
+                    // blocks the whole history page on one request per emoji;
+                    // the UI resolves it asynchronously through the logged-in
+                    // Matrix client after painting the text.
+                    url: source_url.clone(),
+                    source_url: Some(source_url.clone()),
                 });
 
                 if source_url.is_empty() || custom_emoji_urls_by_source.contains_key(&source_url) {
                     continue;
                 }
 
-                custom_emoji_urls_by_source.insert(
-                    source_url,
-                    custom_emojis
-                        .last()
-                        .expect("custom emoji just pushed")
-                        .url
-                        .clone(),
-                );
+                custom_emoji_urls_by_source.insert(source_url.clone(), source_url);
             }
 
             let formatted_body = parsed.formatted_body.map(|body| {

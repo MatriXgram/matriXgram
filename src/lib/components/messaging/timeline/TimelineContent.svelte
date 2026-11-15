@@ -35,6 +35,7 @@
     onTimelineElementChange?: (element: HTMLElement | null) => void;
     onProgrammaticScroll?: () => void;
     onLoadJumpContext?: (eventId: string) => Promise<boolean>;
+    attentionJumpRequest?: { eventId: string; nonce: number } | null;
   }
 
   let {
@@ -55,6 +56,7 @@
     onTimelineElementChange,
     onProgrammaticScroll,
     onLoadJumpContext,
+    attentionJumpRequest = null,
   }: Props = $props();
 
   let timelineElement: HTMLElement | null = $state(null);
@@ -78,6 +80,11 @@
   const groupMessages = createTimelineGrouper();
   const rows = $derived(groupMessages(messages));
   const imageMessages = $derived(messages.filter((message) => message.messageType === "m.image" && message.imageUrl));
+
+  $effect(() => {
+    const request = attentionJumpRequest;
+    if (request) void jumpToMessage(request.eventId);
+  });
 
   const messagesByEventId = $derived.by(() => {
     const indexed = new Map<string, TimelineMessage>();
