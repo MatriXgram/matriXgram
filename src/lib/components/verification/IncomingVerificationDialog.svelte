@@ -9,6 +9,13 @@
   } from "$lib/chats/api";
   import type { MatrixVerificationFlowResponse } from "$lib/chats/types";
   import { EVENT_VERIFICATION_REQUESTED } from "$lib/events";
+  import {
+    activeIncomingVerificationRequest,
+    closeIncomingVerificationRequest,
+    incomingVerificationRequestKey,
+    receiveIncomingVerificationRequest,
+    resolveIncomingVerificationRequest,
+  } from "$lib/verification/incoming-requests";
 
   let flow = $state<MatrixVerificationFlowResponse | null>(null);
   let deviceId = $state("");
@@ -22,13 +29,7 @@
     void listen<{ userId: string; flowId: string; deviceId: string }>(
       EVENT_VERIFICATION_REQUESTED,
       ({ payload }) => {
-        const key = `${payload.userId}:${payload.flowId}`;
-        if (key === requestKey) return;
-        requestKey = key;
-        deviceId = payload.deviceId;
-        error = "";
-        flow = null;
-        void loadFlow(payload.userId, payload.flowId);
+        receiveIncomingVerificationRequest(payload);
       },
     ).then((stop) => { unlisten = stop; });
 
@@ -38,9 +39,34 @@
     };
   });
 
+  $effect(() => {
+    const request = $activeIncomingVerificationRequest;
+    if (!request) {
+      requestKey = "";
+      flow = null;
+      deviceId = "";
+      error = "";
+      if (pollTimer) clearTimeout(pollTimer);
+      return;
+    }
+
+    const key = incomingVerificationRequestKey(request);
+    if (key === requestKey) return;
+    requestKey = key;
+    deviceId = request.deviceId;
+    error = "";
+    flow = null;
+    void loadFlow(request.userId, request.flowId);
+  });
+
+  function resolveNotice(userId: string, flowId: string, next: MatrixVerificationFlowResponse) {
+    if (next.isDone || next.isCancelled) resolveIncomingVerificationRequest({ userId, flowId });
+  }
+
   async function loadFlow(userId: string, flowId: string) {
     try {
       flow = await matrixGetVerificationFlow(userId, flowId);
+      resolveNotice(userId, flowId, flow);
       scheduleRefresh(userId, flowId);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Could not load verification request";
@@ -53,6 +79,7 @@
     pollTimer = setTimeout(async () => {
       try {
         flow = await matrixGetVerificationFlow(userId, flowId);
+        resolveNotice(userId, flowId, flow);
         scheduleRefresh(userId, flowId);
       } catch (cause) {
         error = cause instanceof Error ? cause.message : "Could not refresh verification";
@@ -68,6 +95,7 @@
       if (action === "accept") flow = await matrixAcceptVerificationRequest(flow.userId, flow.flowId);
       else if (action === "acceptSas") flow = await matrixAcceptSasVerification(flow.userId, flow.flowId);
       else flow = await matrixConfirmSasVerification(flow.userId, flow.flowId);
+      resolveNotice(flow.userId, flow.flowId, flow);
       scheduleRefresh(flow.userId, flow.flowId);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Verification action failed";
@@ -77,11 +105,7 @@
   }
 
   function close() {
-    flow = null;
-    deviceId = "";
-    requestKey = "";
-    error = "";
-    if (pollTimer) clearTimeout(pollTimer);
+    closeIncomingVerificationRequest();
   }
 </script>
 
@@ -106,15 +130,27 @@
         {:else if flow.canAcceptRequest}
           <button class="btn preset-filled-primary w-full justify-center" onclick={() => act("accept")} disabled={pending}>Accept request</button>
         {:else if flow.canAcceptSas}
-          <div class="mb-4 grid grid-cols-4 gap-2 text-center text-2xl">
-            {#each flow.emojis as emoji (`${emoji.symbol}-${emoji.description}`)}<span title={emoji.description}>{emoji.symbol}</span>{/each}
+          <div class="mb-4 grid grid-cols-8 gap-2 text-center text-2xl">
+            {#each flow.emojis as emoji, index (`${emoji.symbol}-${emoji.description}`)}
+              <span
+                class="col-span-2 rounded-lg bg-panel-alt py-2"
+                style={`grid-column: ${index < 4 ? index * 2 + 1 : (index - 4) * 2 + 2} / span 2;`}
+                title={emoji.description}
+              >{emoji.symbol}</span>
+            {/each}
           </div>
           {#if flow.decimals}<p class="mb-4 text-center font-mono text-xl tracking-widest">{flow.decimals.join(" · ")}</p>{/if}
           <p class="mb-4 text-sm text-secondary">Compare these emojis or numbers with the other device. If they match, accept on both devices.</p>
           <button class="btn preset-filled-primary w-full justify-center" onclick={() => act("acceptSas")} disabled={pending}>They match · Accept</button>
         {:else if flow.canConfirmSas}
-          <div class="mb-4 grid grid-cols-4 gap-2 text-center text-2xl">
-            {#each flow.emojis as emoji (`${emoji.symbol}-${emoji.description}`)}<span title={emoji.description}>{emoji.symbol}</span>{/each}
+          <div class="mb-4 grid grid-cols-8 gap-2 text-center text-2xl">
+            {#each flow.emojis as emoji, index (`${emoji.symbol}-${emoji.description}`)}
+              <span
+                class="col-span-2 rounded-lg bg-panel-alt py-2"
+                style={`grid-column: ${index < 4 ? index * 2 + 1 : (index - 4) * 2 + 2} / span 2;`}
+                title={emoji.description}
+              >{emoji.symbol}</span>
+            {/each}
           </div>
           {#if flow.decimals}<p class="mb-4 text-center font-mono text-xl tracking-widest">{flow.decimals.join(" · ")}</p>{/if}
           <p class="mb-4 text-sm text-secondary">Compare with the other device. Confirm only if the emojis or numbers match.</p>

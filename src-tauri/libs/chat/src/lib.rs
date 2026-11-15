@@ -15,6 +15,7 @@ pub mod receive;
 pub mod redaction;
 pub mod send;
 
+pub use assets::cache_avatar_mxc_to_local_path;
 pub use commands::{
     cancel_media_transcode, copy_image_to_clipboard, download_file_data, get_chat_messages,
     get_emoji_packs, get_user_avatar, read_clipboard_text, resolve_media_url, resolve_video_url,

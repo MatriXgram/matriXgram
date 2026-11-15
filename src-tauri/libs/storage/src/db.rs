@@ -809,6 +809,7 @@ impl AppDb {
                 .execute("DELETE FROM session_cache", [])
                 .map_err(|error| format!("Failed to clear session cache: {error}"))?;
             clear_cache_tables(connection)?;
+            clear_avatar_source_tables(connection)?;
             Ok(())
         })
         .await
@@ -837,6 +838,10 @@ fn clear_cache_tables(connection: &Connection) -> Result<(), String> {
     connection
         .execute("DELETE FROM message_cache", [])
         .map_err(|error| format!("Failed to clear message cache: {error}"))?;
+    Ok(())
+}
+
+fn clear_avatar_source_tables(connection: &Connection) -> Result<(), String> {
     // Room ids are not shared between accounts, so a row left over from a
     // previous login is dead weight at best and a wrong avatar at worst.
     connection
@@ -1281,12 +1286,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn image_source_cache_does_not_survive_a_cache_clear() {
+    async fn image_source_cache_survives_clear_but_not_logout() {
         let path = temp_db_path();
         let app_db = AppDb::initialize(&path, "test-secret").unwrap();
 
         app_db
             .set_chat_image_source("!room:example.org", Some("mxc://example.org/avatar"))
+            .await
+            .unwrap();
+        app_db
+            .set_user_avatar_source("@alice:example.org", Some("mxc://example.org/user-avatar"))
             .await
             .unwrap();
         assert_eq!(
@@ -1296,6 +1305,11 @@ mod tests {
 
         app_db.clear_non_auth_cache().await.unwrap();
 
+        assert_eq!(
+            app_db.load_cached_chat_image_sources().await.unwrap().len(),
+            1
+        );
+        app_db.clear_app_cache().await.unwrap();
         assert!(app_db
             .load_cached_chat_image_sources()
             .await

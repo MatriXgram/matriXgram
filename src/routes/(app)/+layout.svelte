@@ -4,6 +4,7 @@
   import { get } from "svelte/store";
   import { onMount } from "svelte";
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+  import { polyfillCountryFlagEmojis } from "country-flag-emoji-polyfill";
 
   import { matrixSessionStatus } from "$lib/auth/api";
   import { avatarBackground, initialsForName } from "$lib/avatars";
@@ -18,6 +19,7 @@
   } from "$lib/chats/api";
   import { mergeInitialChatSnapshot } from "$lib/chats/snapshot";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
+  import { initializeReactionNotices, recordReactionNotice, removeReactionNotice } from "$lib/chats/reaction-notifications";
   import {
     logout as logoutSession,
     refreshRecoveryState,
@@ -45,6 +47,11 @@
 
   import UserProfileDialog from "$lib/components/messaging/message/UserProfileDialog.svelte";
   import IncomingVerificationDialog from "$lib/components/verification/IncomingVerificationDialog.svelte";
+  import {
+    clearReadIncomingVerificationRequests,
+    incomingVerificationRequests,
+    openIncomingVerificationRequest,
+  } from "$lib/verification/incoming-requests";
 
   let { children } = $props();
 
@@ -62,6 +69,8 @@
   let dismissedInviteIds = $state<string[]>([]);
   const inviteNotifications = $derived($shellChats.filter((chat) => chat.isInvited && !dismissedInviteIds.includes(chat.roomId)));
   const unreadInviteCount = $derived(inviteNotifications.filter((invite) => !readInviteIds.includes(invite.roomId)).length);
+  const unreadVerificationCount = $derived($incomingVerificationRequests.filter((request) => !request.read).length);
+  const unreadNotificationCount = $derived(unreadInviteCount + unreadVerificationCount);
 
   function markInviteRead(roomId: string) {
     if (readInviteIds.includes(roomId)) return;
@@ -88,6 +97,12 @@
     const readIds = inviteNotifications.filter((invite) => readInviteIds.includes(invite.roomId)).map((invite) => invite.roomId);
     dismissedInviteIds = [...new Set([...dismissedInviteIds, ...readIds])];
     localStorage.setItem("matrixgram.dismissed-invites", JSON.stringify(dismissedInviteIds));
+    clearReadIncomingVerificationRequests();
+  }
+
+  function openVerificationNotification(request: Parameters<typeof openIncomingVerificationRequest>[0]) {
+    openIncomingVerificationRequest(request);
+    notificationsOpen = false;
   }
 
   async function declineInvite(invite: MatrixChatSummary) {
@@ -205,6 +220,7 @@
   }
 
   onMount(() => {
+    polyfillCountryFlagEmojis("Twemoji Country Flags", "/fonts/TwemojiCountryFlags.woff2");
     try {
       const savedReadInvites = JSON.parse(localStorage.getItem("matrixgram.read-invites") ?? "[]");
       if (Array.isArray(savedReadInvites)) readInviteIds = savedReadInvites.filter((value): value is string => typeof value === "string");
@@ -228,6 +244,18 @@
           shellErrorMessage.set(payload.error ?? "");
         },
         onRoomAdded: applyRoomUpsert,
+        onReactionReceived: (notice) => {
+          const currentUser = get(shellCurrentUserId);
+          if (!shellActive() || (currentUser && notice.userId !== currentUser)) return;
+          initializeReactionNotices(notice.userId);
+          recordReactionNotice(notice);
+        },
+        onReactionRedacted: (notice) => {
+          const currentUser = get(shellCurrentUserId);
+          if (!shellActive() || (currentUser && notice.userId !== currentUser)) return;
+          initializeReactionNotices(notice.userId);
+          removeReactionNotice(notice.userId, notice.eventId);
+        },
         onRoomUpdated: applyRoomUpsert,
         onRoomRemoved: applyRoomRemoval,
         onSelectedRoomMessages: (_payload: MatrixSelectedRoomMessagesEvent) => {},
@@ -365,6 +393,7 @@
         return;
       }
 
+      initializeReactionNotices(session.userId ?? "");
       shellCurrentUserId.set(session.userId ?? "");
 
       const rooms = await matrixGetChats();
@@ -575,18 +604,25 @@
           compact={isCommunityExplorer}
         />
 
-        <div class="sidebar-footer relative flex gap-1">
-          <button type="button" data-notification-trigger aria-label="Notifications" title="Notifications" class={`btn relative min-w-0 flex-1 justify-center px-0 ${notificationsOpen ? "bg-hover text-primary" : ""}`} aria-expanded={notificationsOpen} onclick={openNotifications}>
+        <div class="sidebar-footer relative flex" class:compact={isCommunityExplorer}>
+          <button type="button" data-notification-trigger aria-label="Notifications" title="Notifications" class="sidebar-footer-action relative" class:active={notificationsOpen} aria-expanded={notificationsOpen} onclick={openNotifications}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-[18px]" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
-            {#if unreadInviteCount}<span class="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] leading-4 text-white">{unreadInviteCount}</span>{/if}
+            {#if unreadNotificationCount}<span class="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] leading-4 text-white">{unreadNotificationCount}</span>{/if}
           </button>
-          <a class="btn min-w-0 flex-1 justify-center px-0" aria-label="Settings" title={page.url.pathname.startsWith("/settings") ? "Back to chat" : "Settings"} href={page.url.pathname.startsWith("/settings") ? `/chats?${new URLSearchParams({ roomId: $shellSelectedRoomId, rootSpaceId: $shellSelectedRootSpaceId })}` : "/settings"}>
+          <a class="sidebar-footer-action" aria-label={page.url.pathname.startsWith("/settings") ? "Back to chat" : "Settings"} title={page.url.pathname.startsWith("/settings") ? "Back to chat" : "Settings"} href={page.url.pathname.startsWith("/settings") ? `/chats?${new URLSearchParams({ roomId: $shellSelectedRoomId, rootSpaceId: $shellSelectedRootSpaceId })}` : "/settings"}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-[18px]" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z"/><circle cx="12" cy="12" r="3"/></svg>
           </a>
           {#if notificationsOpen}
-            <section data-notification-popover class="absolute bottom-full left-0 z-50 mb-2 max-h-[min(70vh,520px)] w-[min(360px,calc(100vw-24px))] overflow-y-auto border border-hairline bg-panel shadow-xl" aria-label="Invitations">
-              <div class="sticky top-0 flex items-center justify-between border-b border-hairline bg-panel px-3 py-2"><h2 class="text-sm font-semibold">Notifications</h2><div class="flex items-center gap-2">{#if inviteNotifications.some((invite) => readInviteIds.includes(invite.roomId))}<button type="button" class="cursor-pointer text-xs text-secondary hover:text-primary" onclick={clearReadNotifications}>Clear read</button>{/if}<button type="button" class="cursor-pointer px-1 text-secondary hover:text-primary" aria-label="Close notifications" onclick={() => notificationsOpen = false}>×</button></div></div>
-              {#if inviteNotifications.length === 0}<p class="px-3 py-5 text-center text-sm text-secondary">No new invitations.</p>{:else}
+            <section data-notification-popover class="absolute bottom-full left-0 z-50 mb-2 max-h-[min(70vh,520px)] w-[min(360px,calc(100vw-24px))] overflow-y-auto border border-hairline bg-panel shadow-xl" aria-label="Notifications">
+              <div class="sticky top-0 flex items-center justify-between border-b border-hairline bg-panel px-3 py-2"><h2 class="text-sm font-semibold">Notifications</h2><div class="flex items-center gap-2">{#if inviteNotifications.some((invite) => readInviteIds.includes(invite.roomId)) || $incomingVerificationRequests.some((request) => request.read)}<button type="button" class="cursor-pointer text-xs text-secondary hover:text-primary" onclick={clearReadNotifications}>Clear read</button>{/if}<button type="button" class="cursor-pointer px-1 text-secondary hover:text-primary" aria-label="Close notifications" onclick={() => notificationsOpen = false}>×</button></div></div>
+              {#if inviteNotifications.length === 0 && $incomingVerificationRequests.length === 0}<p class="px-3 py-5 text-center text-sm text-secondary">No new notifications.</p>{:else}
+                {#each $incomingVerificationRequests as request (`${request.userId}:${request.flowId}`)}
+                  <button type="button" class={`flex w-full cursor-pointer items-center gap-3 border-b border-hairline px-3 py-3 text-left hover:bg-panel-alt ${request.read ? "" : "bg-accent/5"}`} onclick={() => openVerificationNotification(request)}>
+                    <span class="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-lg text-accent" aria-hidden="true">🔐</span>
+                    <span class="min-w-0 flex-1"><span class="block text-sm font-medium text-primary">Device verification request</span><span class="block truncate text-xs text-secondary">Device {request.deviceId} · {request.userId}</span></span>
+                    <span class="shrink-0 text-xs text-accent">{request.read ? "Open" : "Verify"}</span>
+                  </button>
+                {/each}
                 {#each inviteNotifications as invite (invite.roomId)}
                   <div class="flex items-center gap-1 border-b border-hairline pr-2"><button type="button" class="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-3 py-3 text-left hover:bg-panel-alt" onclick={() => void openInvite(invite)}><div class="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">{invite.displayName.slice(0, 1).toUpperCase()}</div><div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-primary">{invite.displayName}</p><p class="text-xs text-secondary">{invite.isDirect ? "Private chat invite · Open conversation" : "Room invite · View room details"}</p></div><span class="text-xs text-accent">Open</span></button><button type="button" class="btn btn-sm" title="Decline invitation" aria-label={`Decline ${invite.displayName}`} onclick={() => void declineInvite(invite)}>Decline</button></div>
                 {/each}

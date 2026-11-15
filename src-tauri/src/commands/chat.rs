@@ -225,7 +225,7 @@ pub async fn matrix_stream_chat_messages(
 
         let stream_result = chat::stream_chat_messages(context, request_for_task.clone()).await;
 
-        let mut stream_failed = false;
+        let mut stream_error: Option<String> = None;
 
         if let Err(error) = stream_result {
             if chat::helpers::is_room_unavailable_error(&error) {
@@ -233,7 +233,7 @@ pub async fn matrix_stream_chat_messages(
                     log::warn!(
                         "Background matrix stream sync failed after room-unavailable error: {sync_error}"
                     );
-                    stream_failed = true;
+                    stream_error = Some(format!("Failed to synchronize the room: {sync_error}"));
                 } else {
                     let context = chat::receive::StreamRoomMessagesContext {
                         event_sink: event_sink.as_ref(),
@@ -245,12 +245,12 @@ pub async fn matrix_stream_chat_messages(
                         chat::stream_chat_messages(context, request_for_task).await
                     {
                         log::warn!("Background matrix stream retry failed: {retry_error}");
-                        stream_failed = true;
+                        stream_error = Some(retry_error);
                     }
                 }
             } else {
                 log::warn!("Background matrix stream failed: {error}");
-                stream_failed = true;
+                stream_error = Some(error);
             }
         }
 
@@ -258,7 +258,7 @@ pub async fn matrix_stream_chat_messages(
         // event. If the stream failed without emitting one, emit a terminal
         // `done` (with no messages) so the UI never hangs in an infinite
         // loading loop.
-        if stream_failed {
+        if let Some(error) = stream_error {
             match serde_json::to_value(MatrixChatMessageStreamEvent {
                 room_id: terminal_room_id,
                 stream_id: terminal_stream_id,
@@ -268,6 +268,7 @@ pub async fn matrix_stream_chat_messages(
                 messages: None,
                 next_from: terminal_next_from,
                 done: true,
+                error: Some(error),
             }) {
                 Ok(payload) => {
                     let _ = event_sink.emit(event_paths::CHAT_MESSAGES_STREAM, &payload);

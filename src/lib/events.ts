@@ -10,3 +10,5 @@ export const EVENT_VERIFICATION_REQUESTED = "matrix://verification/requested";
 export const EVENT_MEDIA_TRANSCODE_PROGRESS = "matrix://media/transcode/progress";
 export const EVENT_PROFILE_AVATAR_UPDATED = "matrix://profile/avatar-updated";
 export const EVENT_ROOM_SYNC_STATUS = "matrix://rooms/sync-status";
+export const EVENT_REACTION_RECEIVED = "matrix://rooms/reaction-received";
+export const EVENT_REACTION_REDACTED = "matrix://rooms/reaction-redacted";

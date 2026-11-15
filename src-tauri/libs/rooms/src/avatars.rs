@@ -18,7 +18,7 @@ use matrix_sdk::ruma::events::room::avatar::SyncRoomAvatarEvent;
 use matrix_sdk::ruma::events::room::member::SyncRoomMemberEvent;
 use matrix_sdk::Client;
 
-use chat::cache_mxc_media_to_local_path;
+use chat::cache_avatar_mxc_to_local_path as cache_mxc_media_to_local_path;
 use protocol::parse_user_id;
 use storage::AppDb;
 use types::event_paths;

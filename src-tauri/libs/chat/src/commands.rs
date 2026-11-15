@@ -158,7 +158,7 @@ pub async fn get_user_avatar(
     let avatar_url = latest_user_avatar_source(app_db, user_id.as_str(), member_avatar).await;
 
     let image_url = match avatar_url.as_deref() {
-        Some(avatar_url) => crate::media::cache_mxc_media_to_local_path(client, avatar_url).await,
+        Some(avatar_url) => assets::cache_avatar_mxc_to_local_path(client, avatar_url).await,
         None => None,
     };
 

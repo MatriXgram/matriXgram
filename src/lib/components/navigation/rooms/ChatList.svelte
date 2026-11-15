@@ -18,6 +18,7 @@
 
   let searchQuery = $state("");
   let activeChatTab = $state<"groups" | "direct">("groups");
+  let lastTabSyncedRoomId: string | null = null;
   let createChatOpen = $state(false);
   let createChatUserId = $state("");
   let createChatEncrypted = $state(true);
@@ -64,8 +65,18 @@
   const activeRooms = $derived(activeChatTab === "groups" ? groupRooms : directRooms);
 
   $effect(() => {
+    // Room summaries change during sync, but that must not undo a tab the user
+    // chose manually. Switch tabs only when the selected room actually changes.
+    if (!selectedRoomId) {
+      lastTabSyncedRoomId = null;
+      return;
+    }
+    if (selectedRoomId === lastTabSyncedRoomId) return;
     const selected = rooms.find((room) => room.roomId === selectedRoomId && room.joined);
-    if (selected) activeChatTab = selected.isDirect ? "direct" : "groups";
+    if (selected) {
+      activeChatTab = selected.isDirect ? "direct" : "groups";
+      lastTabSyncedRoomId = selectedRoomId;
+    }
   });
 
   async function handleCreateChat(event: SubmitEvent) {

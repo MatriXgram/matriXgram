@@ -254,7 +254,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <emoji-picker
       bind:this={pickerElement}
-      style={`${pickerStyle}; --background: var(--tg-panel); --border-color: var(--tg-border); --category-font-color: var(--tg-text); --input-font-color: var(--tg-text); --input-border-color: var(--tg-border); --input-placeholder-color: var(--tg-text-secondary); --button-active-background: var(--tg-active); --button-hover-background: var(--tg-hover); --indicator-color: var(--tg-accent); --outline-color: var(--tg-accent);`}
+      style={`${pickerStyle}; --background: var(--tg-panel); --border-color: var(--tg-border); --category-font-color: var(--tg-text); --input-font-color: var(--tg-text); --input-border-color: var(--tg-border); --input-placeholder-color: var(--tg-text-secondary); --button-active-background: var(--tg-active); --button-hover-background: var(--tg-hover); --indicator-color: var(--tg-accent); --outline-color: var(--tg-accent); --emoji-font-family: "Twemoji Country Flags", "Twemoji Mozilla", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", "EmojiOne Color", "Android Emoji", sans-serif;`}
       onemoji-click={handleEmojiClick}
     ></emoji-picker>
   </div>

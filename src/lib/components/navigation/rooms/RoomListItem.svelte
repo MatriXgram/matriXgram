@@ -2,7 +2,8 @@
   import { matrixGetRoomImage, matrixJoinRoom, matrixTriggerRoomUpdate } from "$lib/chats/api";
   import { getDirectRoomPeer } from "$lib/chats/room-members-cache";
   import type { MatrixChatSummary } from "$lib/chats/types";
-  import { shellCurrentUserId, shellErrorMessage } from "$lib/chats/shell";
+  import { shellCurrentUserId, shellErrorMessage, shellPickerCustomEmoji } from "$lib/chats/shell";
+  import { reactionNotices } from "$lib/chats/reaction-notifications";
   import { toChatListTime } from "$lib/components/messaging/shared";
   import { RoomAvatar, RoomSettingsDialog, isVirtualRoomId, roomImageCache, roomImageChangeEpoch } from "../shared";
 
@@ -40,6 +41,15 @@
   const contextMenuAvailable = $derived(!isVirtualRoomId(room.roomId));
   const settingsAvailable = $derived(!isVirtualRoomId(room.roomId) && room.joined);
   const previewSenderSeparator = $derived(room.lastMessagePreview?.indexOf(": ") ?? -1);
+  const roomReactions = $derived($reactionNotices.filter((notice) => notice.roomId === room.roomId));
+  const latestReaction = $derived(roomReactions.at(-1));
+  const showReactionPreview = $derived(latestReaction && latestReaction.timestamp >= (room.lastMessageTs ?? 0));
+  const reactionPreviewEmoji = $derived.by(() => {
+    const key = latestReaction?.key ?? "";
+    if (!key.startsWith("mxc://")) return key;
+    const emoji = $shellPickerCustomEmoji.find((entry) => entry.sourceUrl === key);
+    return emoji?.shortcodes?.[0] ? `:${emoji.shortcodes[0].replace(/^:+|:+$/g, "")}:` : "custom emoji";
+  });
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
   const avatarIdentity = $derived(room.isDirect ? directPeerId ?? room.roomId : room.roomId);
@@ -185,11 +195,13 @@
     <button type="button" class={`relative grid size-11 cursor-pointer place-items-center rounded-full transition-all duration-150 hover:scale-105 hover:bg-accent-soft hover:ring-1 hover:ring-accent/40 ${isSelected ? "bg-primary-100-900 ring-1 ring-accent/40" : ""}`} title={`${room.displayName}${room.unreadCount ? ` · ${room.unreadCount} unread` : ""}`} aria-label={`Open ${room.displayName}`} aria-current={isSelected ? "true" : undefined} onclick={handleClick}>
       <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} identity={avatarIdentity} />
       {#if room.unreadCount > 0}<span class="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-badge px-1 text-center text-[9px] font-semibold leading-4 text-badge-fg">{room.unreadCount > 99 ? "99+" : room.unreadCount}</span>{/if}
+      {#if roomReactions.length > 0}<span class="absolute -bottom-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-accent text-[11px] font-semibold leading-none text-white" title="New reactions" aria-label="New reactions">♡</span>{/if}
     </button>
   {:else}
   <div
     class="chat-list-row flex items-center justify-between w-full transition-colors"
     class:group-room-row={!room.isDirect}
+    class:direct-message-row={room.isDirect}
     aria-current={isSelected ? "true" : undefined}
     class:hover:bg-surface-200-800={!isSpace || hasChildren}
     class:opacity-90={isSpace}
@@ -216,13 +228,15 @@
             </p>
 
             <span class="shrink-0 text-[11px] text-secondary">
-              {toChatListTime(room.lastMessageTs)}
+              {toChatListTime(showReactionPreview ? latestReaction!.timestamp : room.lastMessageTs)}
             </span>
           </div>
 
           <div class="flex items-center justify-between gap-2">
             <p class="min-w-0 flex-1 truncate text-xs text-secondary">
-              {#if room.lastMessagePreview}
+              {#if showReactionPreview && latestReaction}
+                <span class="text-primary">{latestReaction.senderName}</span> reacted {reactionPreviewEmoji} to your message
+              {:else if room.lastMessagePreview}
                 {#if previewSenderSeparator >= 0}
                   <span class="text-primary">{room.lastMessagePreview.slice(0, previewSenderSeparator + 1)}</span>
                   <span>{room.lastMessagePreview.slice(previewSenderSeparator + 2)}</span>
@@ -243,6 +257,9 @@
             </p>
 
             <div class="flex shrink-0 items-center gap-1">
+              {#if roomReactions.length > 0}
+                <span class="grid size-5 place-items-center rounded-full bg-accent text-sm leading-none text-white" title="New reactions" aria-label="New reactions">♡</span>
+              {/if}
               {#if room.isMuted}
                 <span class="text-secondary" title="Muted" aria-label="Muted">🔕</span>
               {/if}

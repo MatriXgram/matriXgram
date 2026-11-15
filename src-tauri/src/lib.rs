@@ -116,6 +116,7 @@ pub fn run() {
                         client.clone(),
                         cancelled.clone(),
                     );
+                    rooms::watch_reactions(&client, sink.clone(), cancelled.clone());
                     rooms::watch_avatar_changes(
                         &client,
                         rooms::avatars::AvatarChangeDeps {

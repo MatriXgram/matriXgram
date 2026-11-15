@@ -61,9 +61,10 @@ export function customEmojiUrlForToken(
 
   if (isMediaUrl(trimmed)) {
     const bySource = pickerEmojiBySourceUrl.get(trimmed);
-    if (bySource) {
-      return bySource;
-    }
+    // A custom reaction can use its MXC URI as the reaction key even when
+    // that emoji pack is not in the currently loaded picker list. The media
+    // resolver can still fetch the authenticated image directly.
+    return bySource ?? trimmed;
   }
 
   const normalizedToken = shortcodeToken(trimmed);
@@ -97,6 +98,7 @@ export function reactionDisplayName(key: string, message: TimelineMessage, picke
     if (pickerShortcode) {
       return emojiName(pickerShortcode);
     }
+    return "Custom emoji";
   }
 
   return emojiName(trimmed);

@@ -9,3 +9,5 @@ pub const MEDIA_TRANSCODE_PROGRESS: &str = "matrix://media/transcode/progress";
 pub const PROFILE_AVATAR_UPDATED: &str = "matrix://profile/avatar-updated";
 
 pub const ROOM_SYNC_STATUS: &str = "matrix://rooms/sync-status";
+pub const REACTION_RECEIVED: &str = "matrix://rooms/reaction-received";
+pub const REACTION_REDACTED: &str = "matrix://rooms/reaction-redacted";

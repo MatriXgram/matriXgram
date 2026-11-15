@@ -10,19 +10,44 @@ use super::mime::{
     image_extension_from_mime, image_extension_from_raw_url, mime_type_from_extension,
 };
 use super::persistence::{
-    cached_media_path_for_source_url, persist_normalized_media, register_cached_media_path,
-    NormalizedMediaLoad,
+    cached_media_path_for_source_url, load_media_bytes_from_resolved_url, persist_normalized_media,
+    register_cached_media_path, NormalizedMediaLoad,
 };
 
 pub async fn cache_mxc_media_to_local_path(
     client: &matrix_sdk::Client,
     raw_url: &str,
 ) -> Option<String> {
+    cache_mxc_image(client, raw_url, false).await
+}
+
+/// Avatars are stored separately so clearing photos and videos leaves them intact.
+pub async fn cache_avatar_mxc_to_local_path(
+    client: &matrix_sdk::Client,
+    raw_url: &str,
+) -> Option<String> {
+    cache_mxc_image(client, raw_url, true).await
+}
+
+async fn cache_mxc_image(
+    client: &matrix_sdk::Client,
+    raw_url: &str,
+    avatar: bool,
+) -> Option<String> {
     if !raw_url.starts_with("mxc://") {
         return None;
     }
 
     if let Some(cached_path) = cached_media_path_for_source_url(raw_url) {
+        // Older versions saved SVG/AVIF/ICO images as application/octet-stream.
+        // Repair those entries without clearing the user's cache or downloading again.
+        if cached_path.ends_with(".bin") || (avatar && !cached_path.contains("avatar-")) {
+            if let Some(bytes) = load_media_bytes_from_resolved_url(&cached_path) {
+                if sniffed_image_extension(&bytes).is_some() {
+                    return persist_mxc_image(raw_url, &bytes, avatar);
+                }
+            }
+        }
         return Some(cached_path);
     }
 
@@ -35,21 +60,29 @@ pub async fn cache_mxc_media_to_local_path(
     let bytes = match client.media().get_media_content(&request, true).await {
         Ok(bytes) => bytes,
         Err(error) => {
-            warn!("Failed to fetch MXC image media content: {error}");
+            warn!("Failed to fetch MXC image {raw_url}: {error}");
             return None;
         }
     };
 
-    let file_stem = mxc_image_cache_key(raw_url, &bytes);
+    persist_mxc_image(raw_url, &bytes, avatar)
+}
+
+fn persist_mxc_image(raw_url: &str, bytes: &[u8], avatar: bool) -> Option<String> {
+    let file_stem = format!(
+        "{}{}",
+        if avatar { "avatar-" } else { "media-" },
+        mxc_image_cache_key(raw_url, bytes)
+    );
     // Avatar mxc URLs have no file-name extension, so derive the type from the
     // bytes; a served `application/octet-stream` never renders in an `<img>`.
-    let extension = sniffed_image_extension(&bytes)
+    let extension = sniffed_image_extension(bytes)
         .or_else(|| sniffed_extension_from_raw_url(raw_url))
         .unwrap_or("bin");
     let mime_type = mime_type_from_extension(extension);
 
     let request = NormalizedMediaLoad::builder()
-        .bytes(&bytes)
+        .bytes(bytes)
         .file_stem(file_stem)
         .extension(extension)
         .mime_type(mime_type)
@@ -99,7 +132,7 @@ pub fn cache_event_image(bytes: &[u8], key_parts: ImageCacheKeyParts) -> Option<
         "bin" => sniffed_image_extension(bytes).unwrap_or("bin"),
         extension => extension,
     };
-    let file_stem = image_cache_key(&key_parts);
+    let file_stem = format!("media-{}", image_cache_key(&key_parts));
 
     let request = NormalizedMediaLoad::builder()
         .bytes(bytes)
@@ -180,6 +213,9 @@ mod tests {
 /// Image file extension sniffed from magic bytes, for media whose URL carries
 /// no usable extension (avatar mxc URLs never do).
 fn sniffed_image_extension(bytes: &[u8]) -> Option<&'static str> {
+    if is_svg(bytes) {
+        return Some("svg");
+    }
     let format = image::guess_format(bytes).ok()?;
     let extension = match format {
         image::ImageFormat::Jpeg => "jpg",
@@ -187,9 +223,36 @@ fn sniffed_image_extension(bytes: &[u8]) -> Option<&'static str> {
         image::ImageFormat::Gif => "gif",
         image::ImageFormat::WebP => "webp",
         image::ImageFormat::Bmp => "bmp",
+        image::ImageFormat::Avif => "avif",
+        image::ImageFormat::Ico => "ico",
         _ => return None,
     };
     Some(extension)
+}
+
+/// SVG has no binary magic number. Only accept an SVG root, optionally preceded
+/// by a UTF-8 BOM, XML declarations, comments or a doctype; not an embedded tag
+/// inside an HTML/error response. The browser still loads it as an inert <img>.
+fn is_svg(bytes: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    let mut text = text.trim_start_matches('\u{feff}').trim_start();
+    loop {
+        let end = if text.starts_with("<?") {
+            text.find("?>").map(|index| index + 2)
+        } else if text.starts_with("<!--") {
+            text.find("-->").map(|index| index + 3)
+        } else if text.starts_with("<!DOCTYPE") {
+            text.find('>').map(|index| index + 1)
+        } else {
+            return text.strip_prefix("<svg").is_some_and(|rest| {
+                rest.starts_with(|ch: char| ch.is_ascii_whitespace() || ch == '>' || ch == '/')
+            });
+        };
+        let Some(end) = end else { return false };
+        text = text[end..].trim_start();
+    }
 }
 
 fn sniffed_extension_from_raw_url(raw_url: &str) -> Option<&'static str> {
@@ -202,7 +265,12 @@ fn sniffed_extension_from_raw_url(raw_url: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod sniff_tests {
     use super::{
-        image_extension_from_raw_url, sniffed_extension_from_raw_url, sniffed_image_extension,
+        cache_mxc_media_to_local_path, image_extension_from_raw_url, mxc_image_cache_key,
+        sniffed_extension_from_raw_url, sniffed_image_extension,
+    };
+    use crate::image::persistence::{
+        load_media_bytes_from_resolved_url, persist_normalized_media, register_cached_media_path,
+        NormalizedMediaLoad,
     };
 
     fn png_bytes() -> Vec<u8> {
@@ -219,6 +287,58 @@ mod sniff_tests {
         assert_eq!(sniffed_image_extension(&jpeg_bytes()), Some("jpg"));
         assert_eq!(sniffed_image_extension(b"plain text"), None);
         assert_eq!(sniffed_image_extension(&[]), None);
+    }
+
+    #[test]
+    fn detects_custom_emoji_formats_without_file_extensions() {
+        for svg in [
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+            "\u{feff}  <?xml version=\"1.0\"?>\n<!-- emoji -->\n<svg />",
+            "<?xml version=\"1.0\"?><!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\"><svg></svg>",
+        ] {
+            assert_eq!(sniffed_image_extension(svg.as_bytes()), Some("svg"));
+        }
+        assert_eq!(
+            sniffed_image_extension(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00mif1avifmiaf"),
+            Some("avif")
+        );
+        assert_eq!(sniffed_image_extension(&[0, 0, 1, 0, 1, 0]), Some("ico"));
+        for invalid in [
+            "<html><svg /></html>",
+            "<svgfake />",
+            "<!-- <svg />",
+            "<?xml",
+        ] {
+            assert_eq!(sniffed_image_extension(invalid.as_bytes()), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn repairs_legacy_binary_svg_cache_without_network() {
+        let source = "mxc://example.org/legacy-svg-cache-test";
+        let bytes = b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+        let legacy = persist_normalized_media(
+            &NormalizedMediaLoad::builder()
+                .bytes(bytes)
+                .file_stem(mxc_image_cache_key(source, bytes))
+                .extension("bin")
+                .mime_type("application/octet-stream")
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+        register_cached_media_path(source, &legacy);
+        let client = matrix_sdk::Client::new(url::Url::parse("https://example.org").unwrap())
+            .await
+            .unwrap();
+        let repaired = cache_mxc_media_to_local_path(&client, source)
+            .await
+            .unwrap();
+        assert!(repaired.ends_with(".svg"));
+        assert_eq!(
+            load_media_bytes_from_resolved_url(&repaired).as_deref(),
+            Some(bytes.as_slice())
+        );
     }
 
     #[test]

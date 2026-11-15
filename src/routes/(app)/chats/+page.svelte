@@ -9,7 +9,7 @@ import {
   matrixGetUploadLimit,
   matrixPrefetchPinnedMessageContexts,
 } from "$lib/chats/api";
-  import { firstUnreadIndex } from "$lib/chats/read-position";
+  import { firstUnreadIndex, isUnreadMessage } from "$lib/chats/read-position";
 import { formatDraft } from "$lib/components/messaging/composer/draftFormatting";
 import type { ComposerMention } from "$lib/components/messaging/composer";
   import { onMount, tick } from "svelte";
@@ -29,6 +29,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
     matrixRedactMessage,
   } from "$lib/chats/api";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
+  import { consumeReactionTarget, reactionNotices } from "$lib/chats/reaction-notifications";
   import { EVENT_MEDIA_TRANSCODE_PROGRESS } from "$lib/events";
   import {
     shellChats,
@@ -58,6 +59,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
   let loadingMessages = $state(false);
   let errorMessage = $state("");
+  let readPositionError = $state("");
   let composerErrorMessage = $state("");
   let messageDraft = $state("");
   let sendingMessage = $state(false);
@@ -94,6 +96,10 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   let activeStreamId = $state("");
   let activeLoadKind = $state<MatrixMessageLoadKind | null>(null);
   let streamMessageCount = $state(0);
+  let roomUpdatesReady = $state(false);
+  let roomUpdatesError = $state("");
+  let retryRoomUpdates = () => {};
+  let initialLoadGeneration = 0;
 
   let unreadBoundaryId = $state<string | null>(null);
   let unreadRemaining = $state(0);
@@ -101,6 +107,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   let initialLatestTimestamp = 0;
   let readMarkerId: string | null = null;
   let readPositionReady = $state(false);
+  let readStateConfirmed = false;
   let initialPositionPending = $state(true);
   let positioningInitial = false;
   let nextTo = $state<string | null>(null);
@@ -129,6 +136,11 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   const hasUnreadAttention = $derived(unreadAttentionMessages.length > 0);
   let attentionJumpRequest = $state<{ eventId: string; nonce: number } | null>(null);
   let attentionJumpNonce = 0;
+  let reactionJumpRequest = $state<{ roomId: string; eventId: string; nonce: number } | null>(null);
+  let reactionJumpNonce = 0;
+  const unreadReactionTargets = $derived([...new Set($reactionNotices
+    .filter((notice) => notice.roomId === $shellSelectedRoomId)
+    .map((notice) => notice.targetEventId))]);
   let readTimer: ReturnType<typeof setTimeout>;
   let readRequestInFlight = false;
 
@@ -139,6 +151,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   >();
 
   const AUTO_LOAD_TOP_THRESHOLD_PX = 600;
+  const REPLY_JUMP_OLDER_EDGE_MESSAGES = 10;
   const NEAR_BOTTOM_PX = 48;
   const PROGRAMMATIC_SCROLL_SETTLE_MS = 800;
   // The room worker holds the per-homeserver sync lock for as long as the
@@ -148,28 +161,51 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
   let pendingPinToBottomRoomId = "";
   let pendingRoomMessages: MatrixSelectedRoomMessagesEvent | null = null;
+  let pendingOlderMessages: MatrixChatMessage[] = [];
+  type RoomViewportAnchor = { eventId: string; offset: number };
+  let pendingRoomViewportAnchor: RoomViewportAnchor | null = null;
+  const roomViewportAnchors = new Map<string, RoomViewportAnchor>();
 
-  let previousSelectedRoomId = "";
+  let previousSelectedRoomId = $state("");
   let lastScrollTop = 0;
   let restoringTimelinePosition = false;
   let isScrolledToBottom = $state(true);
   let programmaticScrollUntil = 0;
+  let viewportAnchorSaveTimer: ReturnType<typeof setTimeout>;
 
   onMount(() => {
     let unlisten = () => {};
     let unlistenTranscode = () => {};
     let unlistenDrop = () => {};
+    let disposed = false;
+    let subscribing = false;
+
+    async function subscribeRoomEvents() {
+      if (subscribing || roomUpdatesReady) return;
+      subscribing = true;
+      roomUpdatesError = "";
+      try {
+        const stop = await subscribeToRoomUpdates({
+          onRoomAdded: () => {},
+          onRoomUpdated: () => {},
+          onRoomRemoved: () => {},
+          onSelectedRoomMessages: applySelectedRoomMessages,
+          onChatMessagesStream: applyChatMessageStream,
+        });
+        if (disposed) { stop(); return; }
+        unlisten = stop;
+        roomUpdatesReady = true;
+      } catch (error) {
+        if (!disposed) roomUpdatesError = error instanceof Error ? error.message : "Failed to subscribe to room updates";
+      } finally {
+        subscribing = false;
+      }
+    }
+    retryRoomUpdates = () => { void subscribeRoomEvents(); };
+    void subscribeRoomEvents();
 
     void (async () => {
-      unlisten = await subscribeToRoomUpdates({
-        onRoomAdded: () => {},
-        onRoomUpdated: () => {},
-        onRoomRemoved: () => {},
-        onSelectedRoomMessages: applySelectedRoomMessages,
-        onChatMessagesStream: applyChatMessageStream,
-      });
-
-      unlistenTranscode = await listen<MatrixMediaTranscodeProgressEvent>(
+      const stopTranscode = await listen<MatrixMediaTranscodeProgressEvent>(
         EVENT_MEDIA_TRANSCODE_PROGRESS,
         (event) => {
           if (event.payload.filePath !== activeMediaFilePath) {
@@ -179,7 +215,9 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
           mediaTranscodeProgress = event.payload;
         },
       );
-      unlistenDrop = await getCurrentWebview().onDragDropEvent((event) => {
+      if (disposed) { stopTranscode(); return; }
+      unlistenTranscode = stopTranscode;
+      const stopDrop = await getCurrentWebview().onDragDropEvent((event) => {
         if (event.payload.type !== "drop" || !event.payload.paths.length || !composerDockElement) return;
         const scale = window.devicePixelRatio || 1;
         const x = event.payload.position.x / scale;
@@ -188,10 +226,15 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return;
         createPendingMedia(event.payload.paths[0]);
       });
+      if (disposed) { stopDrop(); return; }
+      unlistenDrop = stopDrop;
     })();
 
     return () => {
+      disposed = true;
+      initialLoadGeneration++;
       clearTimeout(readTimer);
+      clearTimeout(viewportAnchorSaveTimer);
       unlisten();
       unlistenTranscode();
       unlistenDrop();
@@ -214,8 +257,10 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
   $effect(() => {
     const selectedRoomId = $shellSelectedRoomId;
+    if (!roomUpdatesReady) return;
 
     if (!selectedRoomId) {
+      if (previousSelectedRoomId) rememberRoomViewport(previousSelectedRoomId);
       previousSelectedRoomId = "";
       loadingMessages = false;
       resetRoomState();
@@ -226,11 +271,50 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       return;
     }
 
+    if (previousSelectedRoomId) rememberRoomViewport(previousSelectedRoomId);
     previousSelectedRoomId = selectedRoomId;
     resetRoomState();
+    pendingRoomViewportAnchor = selectedRoomId ? readRoomViewportAnchor(selectedRoomId) : null;
 
     void loadMessages(selectedRoomId);
   });
+
+  function roomViewportStorageKey(roomId: string): string {
+    return `matrixgram:timeline-anchor:${$shellCurrentUserId}:${roomId}`;
+  }
+
+  function readRoomViewportAnchor(roomId: string): RoomViewportAnchor | null {
+    const inMemory = roomViewportAnchors.get(roomId);
+    if (inMemory) return inMemory;
+    try {
+      const stored = localStorage.getItem(roomViewportStorageKey(roomId));
+      if (!stored) return null;
+      const anchor = JSON.parse(stored) as Partial<RoomViewportAnchor>;
+      if (typeof anchor.eventId !== "string" || typeof anchor.offset !== "number" || !Number.isFinite(anchor.offset)) return null;
+      const result = { eventId: anchor.eventId, offset: anchor.offset };
+      roomViewportAnchors.set(roomId, result);
+      return result;
+    } catch {
+      return null;
+    }
+  }
+
+  function rememberRoomViewport(roomId: string) {
+    const element = timelineElement;
+    if (!element) return;
+    const viewportTop = element.getBoundingClientRect().top;
+    const row = Array.from(element.querySelectorAll<HTMLElement>("[data-message-event-id]"))
+      .find((candidate) => candidate.getBoundingClientRect().bottom > viewportTop);
+    const eventId = row?.dataset.messageEventId;
+    if (!row || !eventId) return;
+    const anchor = { eventId, offset: row.getBoundingClientRect().top - viewportTop };
+    roomViewportAnchors.set(roomId, anchor);
+    try {
+      localStorage.setItem(roomViewportStorageKey(roomId), JSON.stringify(anchor));
+    } catch {
+      // The in-memory anchor still works when persistent browser storage is unavailable.
+    }
+  }
 
   function distanceToBottom(element: HTMLElement): number {
     return Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
@@ -250,6 +334,10 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     const scrollingUp = scrollTop < lastScrollTop;
     lastScrollTop = scrollTop;
     isScrolledToBottom = distanceToBottom(timelineElement) <= NEAR_BOTTOM_PX;
+    if (selectedRoomId) {
+      clearTimeout(viewportAnchorSaveTimer);
+      viewportAnchorSaveTimer = setTimeout(() => rememberRoomViewport(selectedRoomId), 250);
+    }
 
     if (!selectedRoomId || performance.now() < programmaticScrollUntil) {
       return;
@@ -327,6 +415,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       timelineElement.scrollTop = maxScrollTop;
       lastScrollTop = timelineElement.scrollTop;
       isScrolledToBottom = true;
+      rememberRoomViewport(roomId);
 
       pendingPinToBottomRoomId = "";
     })();
@@ -421,25 +510,41 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     }
 
     if (payload.done) {
-      nextFrom = payload.nextFrom ?? null;
+      if (!(readingContext && nextTo && payload.loadKind === "initial")) nextFrom = payload.nextFrom ?? null;
       loadingMessages = false;
       activeStreamId = "";
       activeLoadKind = null;
       streamMessageCount = 0;
+      const streamError = payload.error;
+      if (streamError) errorMessage = streamError;
+      else errorMessage = "";
 
       // A room update that arrived while the timeline was streaming is
       // applied now that the stream is done.
+      if (payload.loadKind === "older") flushPendingOlderMessages();
       flushPendingRoomMessages();
 
-  // A fresh room always lands on the newest message, wherever the previous
-  // room was scrolled to.
-  if (payload.loadKind === "initial") {
-    queuePinTimelineToBottom(payload.roomId);
-  }
+      // A fresh room always lands on the newest message, wherever the previous
+      // room was scrolled to. Empty rooms have no position to calculate.
+      if (payload.loadKind === "initial") {
+        if (!messages.length) initialPositionPending = false;
+        queuePinTimelineToBottom(payload.roomId);
+      }
       return;
     }
 
     if (payload.messages) {
+      if (payload.loadKind === "older") {
+        for (const message of payload.messages) {
+          if (!isDuplicateMessage(message)) pendingOlderMessages.push(message);
+        }
+        streamMessageCount = payload.sequence + payload.messages.length;
+        return;
+      }
+      if (readingContext && nextTo && payload.loadKind === "initial") {
+        pendingRoomMessages = { roomId: payload.roomId, nextFrom: null, messages: payload.messages };
+        return;
+      }
       applySelectedRoomMessagesNow({ roomId: payload.roomId, nextFrom: null, messages: payload.messages });
       streamMessageCount = payload.sequence + payload.messages.length;
       return;
@@ -459,9 +564,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     streamMessageCount = payload.sequence + 1;
 
     if (payload.loadKind === "older") {
-      // Older pagination keeps newest->older stream order; prepend preserves chronology.
-      const olderMessage = payload.message;
-      preserveReadingPosition(() => { messages = [olderMessage, ...messages]; });
+      pendingOlderMessages.push(payload.message);
     } else {
       // Initial streaming emits oldest->newest so appending keeps timeline ascending.
       messages = [...messages, payload.message];
@@ -490,13 +593,23 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   }
 
   function flushPendingRoomMessages() {
-    if (loadingMessages || !pendingRoomMessages) {
+    if (loadingMessages || (readingContext && nextTo) || !pendingRoomMessages) {
       return;
     }
 
     const payload = pendingRoomMessages;
     pendingRoomMessages = null;
     applySelectedRoomMessagesNow(payload);
+  }
+
+  function flushPendingOlderMessages() {
+    if (!pendingOlderMessages.length) return;
+    // The pagination stream arrives newest-to-oldest. Reverse once, prepend the
+    // full page, and preserve the viewport once instead of correcting scroll
+    // position for every individual event as it streams in.
+    const olderMessages = pendingOlderMessages.reverse();
+    pendingOlderMessages = [];
+    preserveReadingPosition(() => { messages = [...olderMessages, ...messages]; });
   }
 
   function applySelectedRoomMessagesNow(payload: MatrixSelectedRoomMessagesEvent) {
@@ -1414,11 +1527,13 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   }
 
   function resetRoomState() {
+    initialLoadGeneration++;
     clearTimeout(readTimer);
     unreadBoundaryId = null; unreadRemaining = 0; unreadTotal = 0;
+    readPositionError = "";
     readMarkerId = null; initialLatestTimestamp = 0;
     consumedUnread.clear(); newUnread.clear();
-    readPositionReady = false; initialPositionPending = true;
+    readPositionReady = false; readStateConfirmed = false; initialPositionPending = true;
     positioningInitial = false; nextTo = null; loadingNewer = false;
     readingContext = false; jumpRequested = false; highestReadTimestamp = 0;
     lastScrollTop = 0;
@@ -1440,19 +1555,92 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     mediaTranscodeProgress = null;
     replyToMessage = null;
     pendingRoomMessages = null;
+    pendingOlderMessages = [];
     messages = [];
     nextFrom = null;
+    pendingRoomViewportAnchor = null;
   }
 
   async function loadMessages(roomId: string, jumpToEnd = false) {
     loadingMessages = true;
     errorMessage = "";
-    seenEventIds.clear();
+    pendingOlderMessages = [];
 
     const streamId = createStreamId();
     activeStreamId = streamId;
     activeLoadKind = "initial";
     streamMessageCount = 0;
+    const generation = ++initialLoadGeneration;
+    const startedAt = performance.now();
+    const savedRoomAnchor = jumpToEnd ? null : pendingRoomViewportAnchor;
+
+    // Resolve the read marker independently of the message stream so cached
+    // messages paint immediately. But never position/mark the latest page as
+    // read until the last-read context has actually been resolved.
+    void (async () => {
+      if (jumpToEnd) {
+        readStateConfirmed = true;
+        readPositionReady = true;
+        return;
+      }
+      let read: Awaited<ReturnType<typeof matrixGetRoomReadState>>;
+      try {
+        read = await matrixGetRoomReadState(roomId);
+      } catch (error) {
+        if ($shellSelectedRoomId !== roomId || initialLoadGeneration !== generation) return;
+        // A saved viewport anchor is independent from Matrix read-receipt state;
+        // still position from it even if that request is temporarily unavailable.
+        readPositionReady = Boolean(pendingRoomViewportAnchor);
+        readStateConfirmed = false;
+        if (!pendingRoomViewportAnchor) initialPositionPending = false;
+        readPositionError = error instanceof Error ? `Couldn't restore the last-read position: ${error.message}` : "Couldn't restore the last-read position";
+        return;
+      }
+      if ($shellSelectedRoomId !== roomId || initialLoadGeneration !== generation) return;
+      readMarkerId = read.eventId ?? null;
+      readPositionError = "";
+      unreadTotal = read.unreadCount;
+      unreadRemaining = unreadTotal;
+      initialLatestTimestamp = read.latestTimestamp ?? Date.now();
+      if (readMarkerId && unreadTotal > 0 && !pendingRoomViewportAnchor) {
+        let context: Awaited<ReturnType<typeof matrixGetReadContext>>;
+        try {
+          context = await matrixGetReadContext(roomId, readMarkerId);
+        } catch (error) {
+          if ($shellSelectedRoomId !== roomId || initialLoadGeneration !== generation) return;
+          readPositionReady = false;
+          readStateConfirmed = false;
+          initialPositionPending = false;
+          readPositionError = error instanceof Error ? `Couldn't open the last-read position: ${error.message}` : "Couldn't open the last-read position";
+          return;
+        }
+        if ($shellSelectedRoomId !== roomId || initialLoadGeneration !== generation) return;
+        if (!context.messages.length) {
+          readPositionReady = false;
+          readStateConfirmed = false;
+          initialPositionPending = false;
+          readPositionError = "Couldn't find the last-read message in this room. Retry to try again.";
+          return;
+        }
+        if (initialPositionPending) {
+          const latestMessages = messages;
+          messages = context.messages;
+          seenEventIds.clear();
+          for (const message of messages) if (message.eventId) seenEventIds.add(message.eventId);
+          nextFrom = context.nextFrom ?? null;
+          nextTo = context.nextTo ?? null;
+          readingContext = Boolean(nextTo);
+          if (latestMessages.length) {
+            const latest = { roomId, nextFrom: null, messages: latestMessages };
+            if (readingContext) pendingRoomMessages = latest;
+            else applySelectedRoomMessagesNow(latest);
+          }
+        }
+      }
+      readStateConfirmed = true;
+      readPositionReady = true;
+      console.debug(`Read position ready in ${Math.round(performance.now() - startedAt)}ms`);
+    })();
 
     // Defense-in-depth: if the backend never emits a terminal `done` event
     // (e.g. a stream failure), clear the loading state after a timeout so the
@@ -1463,41 +1651,42 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       }
 
       loadingMessages = false;
-      activeStreamId = "";
-      activeLoadKind = null;
-      streamMessageCount = 0;
-      errorMessage = "Timed out loading messages";
+      errorMessage = "Loading messages is taking longer than expected. You can retry.";
     }, MESSAGE_LOAD_TIMEOUT_MS);
 
     try {
-      if (!jumpToEnd) {
+      if (savedRoomAnchor) {
+        // Buffer room-sync snapshots while its saved viewport window is loading.
+        readingContext = true;
+        nextTo = "__restoring_saved_anchor__";
         try {
-          const read = await matrixGetRoomReadState(roomId);
-          if ($shellSelectedRoomId !== roomId || activeStreamId !== streamId) return;
-          readMarkerId = read.eventId ?? null;
-          unreadTotal = read.unreadCount;
-          unreadRemaining = unreadTotal;
-          initialLatestTimestamp = read.latestTimestamp ?? Date.now();
-          if (readMarkerId && unreadTotal > 0) {
-            try {
-              const context = await matrixGetReadContext(roomId, readMarkerId);
-              if ($shellSelectedRoomId !== roomId || activeStreamId !== streamId) return;
-              if (context.messages.length) {
-                messages = context.messages;
-                for (const message of messages) if (message.eventId) seenEventIds.add(message.eventId);
-                nextFrom = context.nextFrom ?? null; nextTo = context.nextTo ?? null;
-                readingContext = Boolean(nextTo);
-                activeStreamId = ""; activeLoadKind = null; loadingMessages = false;
-                readPositionReady = true;
-                clearTimeout(timeoutHandle);
-                void positionInitialRead();
-                return;
-              }
-            } catch { /* A redacted/unavailable marker falls back to the newest page. */ }
+          const context = await matrixGetReadContext(roomId, savedRoomAnchor.eventId);
+          if ($shellSelectedRoomId !== roomId || initialLoadGeneration !== generation) {
+            clearTimeout(timeoutHandle);
+            return;
           }
-        } catch { initialLatestTimestamp = Date.now(); }
+          if (context.messages.some((message) => message.eventId === savedRoomAnchor.eventId)) {
+            messages = context.messages;
+            seenEventIds.clear();
+            for (const message of messages) if (message.eventId) seenEventIds.add(message.eventId);
+            nextFrom = context.nextFrom ?? null;
+            nextTo = context.nextTo ?? null;
+            readingContext = Boolean(nextTo);
+            loadingMessages = false;
+            activeStreamId = "";
+            activeLoadKind = null;
+            streamMessageCount = 0;
+            clearTimeout(timeoutHandle);
+            flushPendingRoomMessages();
+            return;
+          }
+        } catch {
+          // Fall back to the normal cached latest page if the saved anchor is unavailable.
+        }
+        readingContext = false;
+        nextTo = null;
       }
-      readPositionReady = true;
+
       await matrixStreamChatMessages({
         roomId,
         from: null,
@@ -1527,7 +1716,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
   function trackNewUnread(incoming: MatrixChatMessage[]) {
     for (const message of incoming) {
-      if (message.eventId && message.sender !== $shellCurrentUserId &&
+      if (isUnreadMessage(message) && message.eventId && message.sender !== $shellCurrentUserId &&
           (message.timestamp ?? 0) > initialLatestTimestamp) newUnread.add(message.eventId);
     }
     unreadRemaining = Math.max(0, unreadTotal + newUnread.size - consumedUnread.size);
@@ -1543,12 +1732,22 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       await tick();
       if ($shellSelectedRoomId !== roomId || !timelineElement) return;
       beginProgrammaticScroll();
+      const savedAnchor = pendingRoomViewportAnchor;
+      const savedAnchorElement = savedAnchor
+        ? timelineElement.querySelector<HTMLElement>(
+            `[data-message-event-id="${savedAnchor.eventId.replaceAll('"', '\\"')}"]`,
+          )
+        : null;
       const divider = timelineElement.querySelector<HTMLElement>("[data-unread-divider]");
-      if (divider) {
+      if (savedAnchor && savedAnchorElement) {
+        timelineElement.scrollTop += savedAnchorElement.getBoundingClientRect().top
+          - timelineElement.getBoundingClientRect().top - savedAnchor.offset;
+      } else if (divider) {
         timelineElement.scrollTop += divider.getBoundingClientRect().top - timelineElement.getBoundingClientRect().top - 16;
       } else {
         timelineElement.scrollTop = timelineElement.scrollHeight;
       }
+      pendingRoomViewportAnchor = null;
       lastScrollTop = timelineElement.scrollTop;
       isScrolledToBottom = !nextTo && distanceToBottom(timelineElement) <= NEAR_BOTTOM_PX;
       initialPositionPending = false;
@@ -1563,11 +1762,17 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   }
   async function markVisibleRead() {
     const element = timelineElement, roomId = $shellSelectedRoomId;
-    if (!element || !roomId || !readPositionReady || initialPositionPending || restoringTimelinePosition ||
+    if (!element || !roomId || !readPositionReady || !readStateConfirmed || initialPositionPending || restoringTimelinePosition ||
         document.hidden || !document.hasFocus() || readRequestInFlight) return;
     const viewport = element.getBoundingClientRect();
+    const messageByEventId = new Map(messages.filter(message => message.eventId).map(message => [message.eventId!, message]));
     const visible = Array.from(element.querySelectorAll<HTMLElement>("[data-message-event-id]"))
-      .filter(node => { const rect = node.getBoundingClientRect(); return rect.bottom <= viewport.bottom + 2 && rect.bottom > viewport.top; });
+      .filter(node => {
+        const message = messageByEventId.get(node.dataset.messageEventId ?? "");
+        if (!message || !isUnreadMessage(message)) return false;
+        const rect = node.getBoundingClientRect();
+        return rect.bottom <= viewport.bottom + 2 && rect.bottom > viewport.top;
+      });
     const ids = new Set(visible.map(node => node.dataset.messageEventId));
     let last = -1;
     for (let i = 0; i < messages.length; i++) if (ids.has(messages[i].eventId ?? "")) last = i;
@@ -1580,7 +1785,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     const start = firstUnreadIndex(messages, readMarkerId, unreadTotal, $shellCurrentUserId);
     if (start >= 0) for (let i = start; i <= last; i++) {
       const item = messages[i];
-      if (item.eventId && item.sender !== $shellCurrentUserId) consumedUnread.add(item.eventId);
+      if (isUnreadMessage(item) && item.eventId && item.sender !== $shellCurrentUserId) consumedUnread.add(item.eventId);
     }
     trackNewUnread(messages);
     if (!nextTo && last === messages.length - 1) unreadRemaining = 0;
@@ -1625,10 +1830,23 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     finally { if ($shellSelectedRoomId === roomId) loadingNewer = false; }
   }
 
+  async function loadOlderForReplyJump(roomId: string, eventId: string) {
+    const targetIndex = messages.findIndex((message) => message.eventId === eventId);
+    if (targetIndex < 0 || targetIndex > REPLY_JUMP_OLDER_EDGE_MESSAGES || !nextFrom || loadingMessages) return;
+    // A programmatic reply jump suppresses normal scroll-driven pagination.
+    // Fetch the next older page here when the target sits at the loaded edge.
+    beginProgrammaticScroll();
+    await loadOlder();
+    if ($shellSelectedRoomId !== roomId) return;
+  }
+
   async function loadJumpContext(eventId: string): Promise<boolean> {
     const roomId = $shellSelectedRoomId;
     if (!roomId) return false;
-    if (messages.some((message) => message.eventId === eventId)) return true;
+    if (messages.some((message) => message.eventId === eventId)) {
+      await loadOlderForReplyJump(roomId, eventId);
+      return $shellSelectedRoomId === roomId && messages.some((message) => message.eventId === eventId);
+    }
 
     try {
       const context = await matrixGetReadContext(roomId, eventId);
@@ -1648,6 +1866,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       unreadBoundaryId = unreadIndex >= 0 ? messages[unreadIndex]?.eventId ?? null : null;
       isScrolledToBottom = false;
       await tick();
+      await loadOlderForReplyJump(roomId, eventId);
       if (!nextTo) flushPendingRoomMessages();
       return $shellSelectedRoomId === roomId && Boolean(timelineElement?.querySelector(
         `[data-message-event-id="${eventId.replaceAll('"', '\\"')}"]`,
@@ -1661,6 +1880,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   function jumpToLatest() {
     const roomId = $shellSelectedRoomId;
     if (!roomId) return;
+    pendingRoomViewportAnchor = null;
     if (nextTo) {
       nextTo = null; readingContext = false; pendingRoomMessages = null;
       messages = []; seenEventIds.clear(); nextFrom = null;
@@ -1689,6 +1909,34 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     ) ?? unreadAttentionMessages[0];
     if (next.eventId) attentionJumpRequest = { eventId: next.eventId, nonce: ++attentionJumpNonce };
   }
+
+  function retryInitialLoad() {
+    const roomId = $shellSelectedRoomId;
+    if (!roomId) return;
+    initialPositionPending = true;
+    positioningInitial = false;
+    readPositionReady = false;
+    readStateConfirmed = false;
+    readPositionError = "";
+    errorMessage = "";
+    void loadMessages(roomId);
+  }
+  function jumpToNextReaction() {
+    const roomId = $shellSelectedRoomId;
+    const eventId = unreadReactionTargets[0];
+    if (!roomId || !eventId) return;
+    reactionJumpRequest = { roomId, eventId, nonce: ++reactionJumpNonce };
+  }
+  function finishReactionJump(roomId: string, eventId: string) {
+    consumeReactionTarget(roomId, eventId);
+    if (reactionJumpRequest?.roomId === roomId && reactionJumpRequest.eventId === eventId) {
+      reactionJumpRequest = null;
+    }
+  }
+  $effect(() => {
+    const roomId = $shellSelectedRoomId;
+    if (reactionJumpRequest && reactionJumpRequest.roomId !== roomId) reactionJumpRequest = null;
+  });
   $effect(() => {
     if (messages.length && readPositionReady) {
       if (initialPositionPending) void positionInitialRead();
@@ -1704,6 +1952,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
     loadingMessages = true;
     errorMessage = "";
+    pendingOlderMessages = [];
 
     const streamId = createStreamId();
     activeStreamId = streamId;
@@ -1723,6 +1972,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         return;
       }
 
+      flushPendingOlderMessages();
       loadingMessages = false;
       activeStreamId = "";
       activeLoadKind = null;
@@ -1810,6 +2060,10 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       showAttentionIndicator={hasUnreadAttention}
       attentionCount={unreadAttentionMessages.length}
       {attentionJumpRequest}
+      {reactionJumpRequest}
+      reactionCount={unreadReactionTargets.length}
+      onJumpToReaction={jumpToNextReaction}
+      onReactionJumped={finishReactionJump}
       showJumpToLatest={!initialPositionPending && (!isScrolledToBottom || Boolean(nextTo) || unreadRemaining > 0)}
       onJumpToLatest={jumpToLatest}
       onJumpToAttention={jumpToNextAttention}
@@ -1819,14 +2073,16 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
       isDirect={selectedRoomIsDirect()}
       showSenderNames={selectedRoomIsGroup()}
-      {loadingMessages}
+      timelineVisible={!initialPositionPending}
+      loadingMessages={loadingMessages || (!roomUpdatesReady && !roomUpdatesError) || (roomUpdatesReady && previousSelectedRoomId !== $shellSelectedRoomId)}
       {activeLoadKind}
       {streamMessageCount}
-      error={errorMessage}
+      error={roomUpdatesError || readPositionError || errorMessage}
       isSending={sendingMessage || sendingMedia}
       onTimelineElementChange={(element) => timelineElement = element}
       onScroll={handleTimelineScroll}
       onProgrammaticScroll={beginProgrammaticScroll}
+      onRetryLoad={() => { if (!roomUpdatesReady) retryRoomUpdates(); else retryInitialLoad(); }}
       onOpenRoomSettings={(roomIdToOpen) => (roomSettingsDialogRoomId = roomIdToOpen)}
       onRetryMessage={retryMessage}
       onRemoveFailedMessage={removeFailedMessage}

@@ -45,7 +45,7 @@ pub async fn get_user_profile(
         },
     };
     let avatar_url = match avatar {
-        Some(url) => crate::media::cache_mxc_media_to_local_path(client, &url).await,
+        Some(url) => assets::cache_avatar_mxc_to_local_path(client, &url).await,
         None => None,
     };
     Ok(MatrixUserProfileResponse {

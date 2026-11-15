@@ -25,6 +25,7 @@
     isSending: boolean;
     /// Show the sender name above incoming bubbles (group chats).
     showSenderNames?: boolean;
+    timelineVisible?: boolean;
     onScroll?: (event: Event) => void;
     onRetryMessage?: RetryMessageHandler;
     onRemoveFailedMessage?: RetryMessageHandler;
@@ -36,6 +37,11 @@
     onProgrammaticScroll?: () => void;
     onLoadJumpContext?: (eventId: string) => Promise<boolean>;
     attentionJumpRequest?: { eventId: string; nonce: number } | null;
+    reactionJumpRequest?: { roomId: string; eventId: string; nonce: number } | null;
+    onReactionJumped?: (roomId: string, eventId: string) => void;
+    loadingMessages?: boolean;
+    error?: string;
+    onRetryLoad?: () => void;
   }
 
   let {
@@ -46,6 +52,7 @@
     pickerCustomEmoji,
     isSending,
     showSenderNames = false,
+    timelineVisible = true,
     onScroll,
     onRetryMessage,
     onRemoveFailedMessage,
@@ -57,6 +64,11 @@
     onProgrammaticScroll,
     onLoadJumpContext,
     attentionJumpRequest = null,
+    reactionJumpRequest = null,
+    onReactionJumped,
+    loadingMessages = false,
+    error = "",
+    onRetryLoad,
   }: Props = $props();
 
   let timelineElement: HTMLElement | null = $state(null);
@@ -84,6 +96,15 @@
   $effect(() => {
     const request = attentionJumpRequest;
     if (request) void jumpToMessage(request.eventId);
+  });
+
+  $effect(() => {
+    const request = reactionJumpRequest;
+    if (request && request.roomId === roomId) {
+      void jumpToMessage(request.eventId, () => {
+        if (roomId === request.roomId) onReactionJumped?.(request.roomId, request.eventId);
+      });
+    }
   });
 
   const messagesByEventId = $derived.by(() => {
@@ -295,13 +316,12 @@
       `[data-message-event-id="${eventId.replaceAll('"', '\\"')}"]`;
     let target = timeline.querySelector<HTMLElement>(selector);
 
-    if (!target) {
-      const loaded = await onLoadJumpContext?.(eventId);
-      if (!loaded) return;
-      await tick();
-      target = timeline.querySelector<HTMLElement>(selector);
-      if (!target) return;
-    }
+    if (onLoadJumpContext) {
+      if (!await onLoadJumpContext(eventId)) return;
+    } else if (!target) return;
+    await tick();
+    target = timeline.querySelector<HTMLElement>(selector);
+    if (!target) return;
 
     pendingScrollCleanup?.();
     pendingScrollCleanup = null;
@@ -472,6 +492,7 @@
 
 <div
   class="timeline-scroll relative flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3 min-h-0"
+  class:invisible={!timelineVisible}
   class:has-pinned-message={pinnedEventIds.length > 0}
   bind:this={timelineElement}
   onscroll={handleTimelineScroll}
@@ -504,7 +525,16 @@
   {/if}
 
   {#if messages.length === 0}
-    <p class="px-3 py-6 text-center text-sm text-secondary">No messages yet.</p>
+    {#if loadingMessages}
+      <p class="px-3 py-6 text-center text-sm text-secondary" role="status">Loading messages…</p>
+    {:else if error}
+      <div class="px-3 py-6 text-center text-sm text-secondary">
+        <p>Couldn't load messages.</p>
+        {#if onRetryLoad}<button type="button" class="btn btn-sm mt-2" onclick={onRetryLoad}>Retry</button>{/if}
+      </div>
+    {:else}
+      <p class="px-3 py-6 text-center text-sm text-secondary">No messages yet.</p>
+    {/if}
   {:else}
     <ul class="timeline-messages relative flex flex-col gap-2">
       {#each rows as row (row.key)}

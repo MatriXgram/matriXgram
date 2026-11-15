@@ -9,6 +9,8 @@ import {
   EVENT_PROFILE_AVATAR_UPDATED,
   EVENT_SELECTED_ROOM_MESSAGES,
   EVENT_VERIFICATION_STATE_CHANGED,
+  EVENT_REACTION_RECEIVED,
+  EVENT_REACTION_REDACTED,
 } from "$lib/events";import {
   normalizeChatSummaryImageUrl,
   normalizeChatMessageStreamEvent,
@@ -23,6 +25,7 @@ import type {
   MatrixSelectedRoomMessagesEvent,
   MatrixVerificationStateChangedEvent,
 } from "./types";
+import type { ReactionNotice } from "./reaction-notifications";
 
 export interface RoomUpdateHandlers {
   onRoomAdded: (room: MatrixChatSummary) => void;
@@ -33,11 +36,15 @@ export interface RoomUpdateHandlers {
   onVerificationStateChanged?: (payload: MatrixVerificationStateChangedEvent) => void;
   onRoomSyncStatus?: (payload: MatrixRoomSyncStatusEvent) => void;
   onProfileAvatarUpdated?: (payload: MatrixProfileAvatarUpdatedEvent) => void;
+  onReactionReceived?: (payload: ReactionNotice) => void;
+  onReactionRedacted?: (payload: { userId: string; roomId: string; eventId: string }) => void;
 }
 
 export async function subscribeToRoomUpdates(handlers: RoomUpdateHandlers): Promise<() => void> {
   const unlisteners = await Promise.all([
     listen<MatrixRoomSyncStatusEvent>(EVENT_ROOM_SYNC_STATUS, (event) => handlers.onRoomSyncStatus?.(event.payload)),
+    listen<ReactionNotice>(EVENT_REACTION_RECEIVED, (event) => handlers.onReactionReceived?.(event.payload)),
+    listen<{ userId: string; roomId: string; eventId: string }>(EVENT_REACTION_REDACTED, (event) => handlers.onReactionRedacted?.(event.payload)),
     listen<MatrixChatSummary>(EVENT_ROOM_ADDED, (event) =>
       handlers.onRoomAdded(normalizeChatSummaryImageUrl(event.payload)),
     ),

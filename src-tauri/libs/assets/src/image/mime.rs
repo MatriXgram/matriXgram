@@ -10,6 +10,7 @@ pub fn image_extension_from_mime(mime_type: &str) -> &'static str {
         "image/avif" => "avif",
         "image/bmp" => "bmp",
         "image/svg+xml" => "svg",
+        "image/x-icon" | "image/vnd.microsoft.icon" => "ico",
         _ => "bin",
     }
 }
@@ -23,6 +24,7 @@ pub(super) fn mime_type_from_extension(extension: &str) -> &'static str {
         "avif" => "image/avif",
         "bmp" => "image/bmp",
         "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
         _ => "application/octet-stream",
     }
 }
@@ -44,6 +46,7 @@ pub(super) fn image_extension_from_raw_url(raw_url: &str) -> &'static str {
         "avif" => "avif",
         "bmp" => "bmp",
         "svg" => "svg",
+        "ico" => "ico",
         _ => "bin",
     }
 }

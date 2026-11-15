@@ -9,11 +9,16 @@ const avatarGradients = [
 ] as const;
 
 export function initialsForName(name: string): string {
-  const words = name.trim().replace(/^@+/, "").split(/\s+/).filter(Boolean);
+  const words = name
+    .trim()
+    .replace(/^@+/, "")
+    .split(/\s+/)
+    .map((word) => word.match(/\p{L}/u)?.[0])
+    .filter((initial): initial is string => Boolean(initial));
   if (!words.length) return "?";
-  const first = Array.from(words[0])[0] ?? "?";
+  const first = words[0] ?? "?";
   if (words.length === 1) return first.toLocaleUpperCase();
-  const last = Array.from(words[words.length - 1])[0] ?? "";
+  const last = words[words.length - 1] ?? "";
   return `${first}${last}`.toLocaleUpperCase();
 }
 

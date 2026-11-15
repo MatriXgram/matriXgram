@@ -49,6 +49,7 @@ fn emit_message_batch(
             messages: Some(messages),
             next_from: None,
             done: false,
+            error: None,
         },
         "chat message batch",
     )?;
@@ -139,6 +140,7 @@ impl<'a> ChatMessageStreamer<'a> {
                 messages: None,
                 next_from: None,
                 done: false,
+                error: None,
             },
             "chat message stream event",
         )?;
@@ -177,6 +179,7 @@ impl<'a> ChatMessageStreamer<'a> {
                 messages: None,
                 next_from,
                 done: true,
+                error: None,
             },
             "chat message stream completion",
         )?;
@@ -208,13 +211,20 @@ impl<'a> ChatMessageStreamer<'a> {
             return Ok(false);
         }
 
-        let cached = load_initial_room_messages(
+        let cached = match load_initial_room_messages(
             self.app_db(),
             request.room_id.as_str(),
             request.from.as_deref(),
             request.limit,
         )
-        .await?;
+        .await
+        {
+            Ok(cached) => cached,
+            Err(error) => {
+                log::warn!("Could not read cached timeline; fetching from server: {error}");
+                None
+            }
+        };
 
         if let Some(cached) = cached {
             self.emit_batch(request, cached.messages)?;
@@ -383,7 +393,12 @@ impl<'a> ChatMessageStreamer<'a> {
         F: FnMut(String, Option<String>, Option<u32>) -> Fut,
         Fut: std::future::Future<Output = Result<FetchedPage, String>>,
     {
+        let started_at = std::time::Instant::now();
         if self.try_serve_from_cache(&request).await? {
+            log::info!(
+                "Initial timeline served from cache in {}ms",
+                started_at.elapsed().as_millis()
+            );
             return Ok(MatrixStreamChatMessagesResponse {
                 stream_id: request.stream_id.clone(),
                 started: true,
@@ -415,7 +430,9 @@ impl<'a> ChatMessageStreamer<'a> {
                 && !self.initial_messages.is_empty()
             {
                 self.emit_initial_batches(&request)?;
-                self.store_cache(&request).await?;
+                if let Err(error) = self.store_cache(&request).await {
+                    log::warn!("Could not persist partial timeline cache: {error}");
+                }
                 self.emit_completion(
                     request.room_id.as_str(),
                     request.stream_id.as_str(),
@@ -431,7 +448,9 @@ impl<'a> ChatMessageStreamer<'a> {
             self.emit_initial_batches(&request)?;
         }
 
-        self.store_cache(&request).await?;
+        if let Err(error) = self.store_cache(&request).await {
+            log::warn!("Could not persist timeline cache: {error}");
+        }
 
         self.emit_completion(
             request.room_id.as_str(),
@@ -439,6 +458,17 @@ impl<'a> ChatMessageStreamer<'a> {
             request.load_kind,
             self.final_next_from.clone(),
         )?;
+
+        if matches!(request.load_kind, MatrixMessageLoadKind::Initial) {
+            // Text is painted without awaiting remote media; enrich in the
+            // background using the normal room worker.
+            self.enqueue_room_snapshot_refresh(request.room_id.as_str());
+            log::info!(
+                "Initial timeline loaded {} messages in {}ms",
+                self.sequence,
+                started_at.elapsed().as_millis()
+            );
+        }
 
         Ok(MatrixStreamChatMessagesResponse {
             stream_id: request.stream_id.clone(),

@@ -61,9 +61,12 @@
     {/if}
 
     {#if flow.emojis.length > 0}
-      <div class="grid grid-cols-4 gap-2 text-center sm:grid-cols-7">
-        {#each flow.emojis as emoji (`${emoji.symbol}-${emoji.description}`)}
-          <div class="rounded bg-surface-200-800 p-2">
+      <div class="grid grid-cols-8 gap-2 text-center">
+        {#each flow.emojis as emoji, index (`${emoji.symbol}-${emoji.description}`)}
+          <div
+            class="col-span-2 rounded bg-surface-200-800 p-2"
+            style={`grid-column: ${index < 4 ? index * 2 + 1 : (index - 4) * 2 + 2} / span 2;`}
+          >
             <p class="text-lg">{emoji.symbol}</p>
             <p class="text-[10px] leading-tight">{emoji.description}</p>
           </div>

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chat::cache_mxc_media_to_local_path;
 use storage::AppDb;
 use types::rooms::MatrixChatSummary;
 
@@ -54,10 +53,6 @@ pub async fn collect_and_store_chats(
         .map(|chat| (chat.room_id.clone(), chat))
         .collect::<HashMap<_, _>>();
 
-    let cached_image_sources_by_room = load_cached_chat_image_sources(app_db)
-        .await
-        .unwrap_or_default();
-
     let mut chats = collect_chat_summaries(client).await;
     for chat in &mut chats {
         if let Some(cached) = cached_chats_by_room.get(chat.room_id.as_str()) {
@@ -86,20 +81,13 @@ pub async fn collect_and_store_chats(
             }
         }
 
-        if let Some(source_url) = cached_image_sources_by_room.get(chat.room_id.as_str()) {
-            chat.image_url = cache_mxc_media_to_local_path(client, source_url)
-                .await
-                .or_else(|| {
-                    cached_chats_by_room
-                        .get(chat.room_id.as_str())
-                        .and_then(|c| c.image_url.clone())
-                });
-            continue;
-        }
-
+        // Never download avatars while rebuilding the room snapshot: one slow
+        // federated media server used to block every room and timeline update.
+        // RoomListItem resolves missing images lazily, outside the sync worker.
         if let Some(image_url) = cached_chats_by_room
             .get(chat.room_id.as_str())
             .and_then(|c| c.image_url.clone())
+            .filter(|url| assets::media_url_is_available(url))
         {
             chat.image_url = Some(image_url);
         }

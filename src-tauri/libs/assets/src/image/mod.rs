@@ -25,6 +25,6 @@ pub use persistence::{
     NormalizedMediaLoadBuilder,
 };
 pub use url::{
-    cache_event_image, cache_mxc_media_to_local_path, canonical_pack_source_url,
-    resolve_pack_media_url,
+    cache_avatar_mxc_to_local_path, cache_event_image, cache_mxc_media_to_local_path,
+    canonical_pack_source_url, resolve_pack_media_url,
 };

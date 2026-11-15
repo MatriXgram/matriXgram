@@ -26,6 +26,7 @@
   import OwnDeviceInfo from "$lib/components/verification/OwnDeviceInfo.svelte";
   import DeviceList from "$lib/components/verification/DeviceList.svelte";
   import VerificationFlow from "$lib/components/verification/VerificationFlow.svelte";
+  import { activeIncomingVerificationRequest } from "$lib/verification/incoming-requests";
   import RecoveryKeyImport from "$lib/components/recovery/RecoveryKeyImport.svelte";
   import { recoveryStateLabel } from "$lib/components/verification/helpers";
 
@@ -37,6 +38,13 @@
   let selectedSenderUserId = $state<string | null>(null);
   let requestingVerification = $state<string | null>(null);
   let activeVerificationFlow = $state<MatrixVerificationFlowResponse | null>(null);
+  const displayedVerificationFlow = $derived(
+    activeVerificationFlow &&
+      $activeIncomingVerificationRequest?.userId === activeVerificationFlow.userId &&
+      $activeIncomingVerificationRequest?.flowId === activeVerificationFlow.flowId
+      ? null
+      : activeVerificationFlow,
+  );
   let verificationActionPending = $state(false);
   let verificationError = $state("");
 
@@ -336,7 +344,7 @@
     </section>
 
     <VerificationFlow
-      flow={activeVerificationFlow}
+      flow={displayedVerificationFlow}
       pending={verificationActionPending}
       error={verificationError}
       onRefresh={refreshVerificationFlow}

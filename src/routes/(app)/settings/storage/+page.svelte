@@ -6,7 +6,6 @@
     matrixSetMediaCacheLimit,
   } from "$lib/settings/api";
   import type { MatrixMediaCacheInfoResponse } from "$lib/settings/types";
-  import { clearImageCaches } from "$lib/components/navigation/shared";
 
   const mib = 1024 * 1024;
   const cacheLimits = [
@@ -58,7 +57,7 @@
   }
 
   async function clearCache() {
-    if (!window.confirm("Clear cached photos, videos, and thumbnails on this device? Chats and account data will be kept.")) {
+    if (!window.confirm("Clear cached photos, videos, and thumbnails on this device? Avatars, chats, and account data will be kept.")) {
       return;
     }
 
@@ -67,7 +66,6 @@
     statusMessage = "";
     try {
       const result = await matrixClearMediaCache();
-      clearImageCaches();
       cacheInfo = await matrixGetMediaCacheInfo();
       statusMessage = `Cleared ${formatBytes(result.clearedBytes)} of media cache.`;
     } catch (error) {
@@ -145,7 +143,7 @@
     </label>
 
     <div class="flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
-      <p class="max-w-lg text-xs text-secondary">Clearing media cache does not remove chats, login details, or messages.</p>
+      <p class="max-w-lg text-xs text-secondary">Clearing media cache keeps avatars, chats, login details, and messages. Older unclassified images are retained to protect existing avatars and are removed automatically when the cache limit is reached.</p>
       <button type="button" class="btn preset-tonal" disabled={loading || busy || !cacheInfo?.usedBytes} onclick={() => void clearCache()}>
         {#if busy}Working…{:else}Clear media cache{/if}
       </button>

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use storage::AppDb;
 use types::{EventSink, RoomUpdateTriggerState};
 
-use super::super::media::DefaultMediaResolver;
+use super::super::media::{CachedMediaResolver, DefaultMediaResolver};
 use super::fetch::fetch_room_messages_impl;
 use super::parsing::ReactionAccumulator;
 use super::stream::ChatMessageStreamer;
@@ -47,21 +47,39 @@ pub async fn stream_room_messages_from_client(
     request: MatrixStreamChatMessagesRequest,
 ) -> Result<MatrixStreamChatMessagesResponse, String> {
     let client = context.client;
-    let media_resolver = &DefaultMediaResolver;
     let mut streamer = ChatMessageStreamer::new(context, &request);
-    streamer
-        .run(request, |room_id_raw, from, limit| async move {
-            fetch_room_messages_impl(
-                media_resolver,
-                client,
-                room_id_raw.as_str(),
-                from,
-                limit,
-                &mut ReactionAccumulator::new(),
-            )
+    if matches!(
+        request.load_kind,
+        types::chat::MatrixMessageLoadKind::Initial
+    ) {
+        streamer
+            .run(request, |room_id_raw, from, limit| async move {
+                fetch_room_messages_impl(
+                    &CachedMediaResolver,
+                    client,
+                    room_id_raw.as_str(),
+                    from,
+                    limit,
+                    &mut ReactionAccumulator::new(),
+                )
+                .await
+            })
             .await
-        })
-        .await
+    } else {
+        streamer
+            .run(request, |room_id_raw, from, limit| async move {
+                fetch_room_messages_impl(
+                    &DefaultMediaResolver,
+                    client,
+                    room_id_raw.as_str(),
+                    from,
+                    limit,
+                    &mut ReactionAccumulator::new(),
+                )
+                .await
+            })
+            .await
+    }
 }
 
 /// Paint timeline events already received by sync without a /messages request

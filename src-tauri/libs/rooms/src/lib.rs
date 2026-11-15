@@ -19,6 +19,8 @@ mod sync;
 pub mod workers;
 
 pub use avatars::watch_avatar_changes;
+mod reaction_notifications;
+pub use reaction_notifications::watch_reactions;
 pub use workers::{
     collect_chat_summaries, start_room_update_worker, RoomSnapshot, RoomUpdateWorker,
 };

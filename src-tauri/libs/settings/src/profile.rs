@@ -41,7 +41,7 @@ pub async fn get_profile(
 
     // The frontend renders media from disk-backed `asset://` URLs.
     let avatar_url = match avatar_mxc.as_deref() {
-        Some(mxc) => chat::cache_mxc_media_to_local_path(&client, mxc).await,
+        Some(mxc) => chat::cache_avatar_mxc_to_local_path(&client, mxc).await,
         None => None,
     };
 
@@ -154,7 +154,7 @@ async fn apply_own_avatar_change(
     }
 
     if let Some(mxc) = avatar_mxc {
-        if chat::cache_mxc_media_to_local_path(client, mxc)
+        if chat::cache_avatar_mxc_to_local_path(client, mxc)
             .await
             .is_none()
         {

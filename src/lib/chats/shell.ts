@@ -3,6 +3,8 @@ import { get, writable } from "svelte/store";
 import { goto } from "$app/navigation";
 import { roomImageCache, senderAvatarCache } from "$lib/components/navigation/shared/image-cache.svelte";
 import { matrixLogout, matrixRecoveryStatus, matrixSessionStatus } from "../auth/api";
+import { clearReactionNotices } from "./reaction-notifications";
+import { clearIncomingVerificationRequests } from "$lib/verification/incoming-requests";
 import type { MatrixRecoveryState } from "../auth/types";
 import type {
 	MatrixChatSummary,
@@ -38,6 +40,8 @@ export function resetShellState() {
 	shellCurrentUserId.set("");
 	shellRecoveryState.set(null);
 	shellPickerCustomEmoji.set([]);
+ clearReactionNotices();
+ clearIncomingVerificationRequests();
 }
 
 /// Refresh the recovery status into `shellRecoveryState`, clearing it on error.

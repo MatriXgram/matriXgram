@@ -127,6 +127,7 @@ pub struct MatrixChatMessageStreamEvent {
     pub messages: Option<Vec<MatrixChatMessage>>,
     pub next_from: Option<String>,
     pub done: bool,
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

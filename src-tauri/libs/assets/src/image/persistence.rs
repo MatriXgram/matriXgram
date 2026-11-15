@@ -87,21 +87,40 @@ pub fn initialize_media_cache_dir(cache_dir: &Path) {
     let _ = MEDIA_CACHE_DIR.set(resolved);
 }
 
-/// Remove all cached media files from the media cache directory.
-///
-/// Kept for a "clear cache" action; the app does not call it on startup any
-/// more, because that threw away every image the user had already seen.
+/// Remove media while preserving avatar files and legacy images whose purpose
+/// cannot be distinguished from avatars. The normal size limit still trims
+/// both kinds of files. In-progress atomic writes are never removed here.
 pub fn clear_media_cache() -> Result<u64, String> {
     let cache_dir = media_cache_dir();
-    let bytes_cleared = media_cache_size_bytes();
-    if cache_dir.exists() {
-        fs::remove_dir_all(&cache_dir)
-            .map_err(|error| format!("Failed to clear media cache directory: {error}"))?;
-    }
     fs::create_dir_all(&cache_dir)
         .map_err(|error| format!("Failed to recreate media cache directory: {error}"))?;
+    let bytes_cleared = clear_non_avatar_files(&cache_dir)?;
     if let Ok(mut urls) = cached_media_urls().lock() {
-        urls.clear();
+        urls.retain(|_, path| media_url_is_available(path));
+    }
+    Ok(bytes_cleared)
+}
+
+fn clear_non_avatar_files(cache_dir: &Path) -> Result<u64, String> {
+    let entries = fs::read_dir(cache_dir)
+        .map_err(|error| format!("Failed to read media cache directory: {error}"))?;
+    let mut bytes_cleared = 0_u64;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("Failed to read cached media entry: {error}"))?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("avatar-") || name.starts_with("img-") || name.ends_with(".tmp") {
+            continue;
+        }
+        let metadata = entry
+            .metadata()
+            .map_err(|error| format!("Failed to inspect cached media: {error}"))?;
+        if !metadata.is_file() {
+            continue;
+        }
+        fs::remove_file(entry.path())
+            .map_err(|error| format!("Failed to remove cached media: {error}"))?;
+        bytes_cleared = bytes_cleared.saturating_add(metadata.len());
     }
     Ok(bytes_cleared)
 }
@@ -422,8 +441,9 @@ mod tests {
     use std::fs;
 
     use super::{
-        load_media_bytes_from_resolved_url, media_url_is_available, percent_encode_asset_path,
-        to_asset_storage_url, NormalizedMediaLoad, NormalizedMediaLoadBuilder,
+        clear_non_avatar_files, load_media_bytes_from_resolved_url, media_url_is_available,
+        percent_encode_asset_path, to_asset_storage_url, NormalizedMediaLoad,
+        NormalizedMediaLoadBuilder,
     };
 
     #[test]
@@ -438,6 +458,29 @@ mod tests {
             .mime_type("image/png")
             .build();
         assert!(complete.is_some());
+    }
+
+    #[test]
+    fn clear_media_preserves_avatars_legacy_images_and_inflight_writes() {
+        let dir =
+            std::env::temp_dir().join(format!("matrixgram-clear-media-{}", rand::random::<u64>()));
+        fs::create_dir_all(&dir).unwrap();
+        for (name, bytes) in [
+            ("avatar-img-a.png", &[1, 2][..]),
+            ("img-old.png", &[3][..]),
+            ("media-img-b.png", &[4, 5, 6][..]),
+            ("video-x.mp4", &[7, 8][..]),
+            ("media-inflight.tmp", &[9][..]),
+        ] {
+            fs::write(dir.join(name), bytes).unwrap();
+        }
+        assert_eq!(clear_non_avatar_files(&dir).unwrap(), 5);
+        assert!(dir.join("avatar-img-a.png").exists());
+        assert!(dir.join("img-old.png").exists());
+        assert!(dir.join("media-inflight.tmp").exists());
+        assert!(!dir.join("media-img-b.png").exists());
+        assert!(!dir.join("video-x.mp4").exists());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -132,6 +132,7 @@ export interface MatrixChatMessageStreamEvent {
   messages?: MatrixChatMessage[] | null;
   nextFrom?: string | null;
   done: boolean;
+  error?: string | null;
 }
 
 export interface MatrixGetChatMessagesRequest {

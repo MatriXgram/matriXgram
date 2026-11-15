@@ -4,7 +4,7 @@ use assets::media_url_is_available;
 use log::warn;
 
 use auth::AuthState;
-use chat::cache_mxc_media_to_local_path;
+use chat::cache_avatar_mxc_to_local_path as cache_mxc_media_to_local_path;
 use protocol::parse_room_id;
 use storage::AppDb;
 use types::event_paths;
