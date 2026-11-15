@@ -535,7 +535,7 @@
           <li class="sender-group" class:sender-group-own={isOwnGroup}>
             {#if !isOwnGroup}
               <div class="sender-group-avatar">
-                <MessageAvatar {roomId} sender={row.sender}
+                <MessageAvatar {roomId} sender={row.sender} displayName={row.messages[0].message.senderDisplayName}
                   onOpenProfile={(avatarUrl) => openUserProfile({
                     roomId, userId: row.sender,
                     displayName: row.messages[0].message.senderDisplayName,

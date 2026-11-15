@@ -5,6 +5,7 @@
 
 	import { matrixGetProfile, matrixRemoveAvatar, matrixSetAvatar, matrixSetDisplayName } from "$lib/settings/api";
 import { invalidateSenderAvatar } from "$lib/components/navigation/shared/image-cache.svelte";
+import { avatarBackground, initialsForName } from "$lib/avatars";
 
 	let loading = $state(true);
 	let savingName = $state(false);
@@ -108,8 +109,7 @@ import { invalidateSenderAvatar } from "$lib/components/navigation/shared/image-
 	}
 
 	const avatarLabel = $derived.by(() => {
-		const localPart = userId.includes(":") ? userId.slice(0, userId.indexOf(":")) : userId;
-		return localPart.replace(/^@/, "").charAt(0).toUpperCase() || "#";
+		return initialsForName(displayName || userId);
 	});
 </script>
 
@@ -134,7 +134,7 @@ import { invalidateSenderAvatar } from "$lib/components/navigation/shared/image-
 		<section class="card p-3 preset-outlined-surface-300-700 bg-surface-50-950 space-y-3">
 			<h3 class="h6">Avatar</h3>
 			<div class="flex items-center gap-4">
-				<div class="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-surface-200-800 grid place-items-center text-xl font-semibold text-surface-800-200">
+				<div style={`background: ${avatarBackground(userId)}; color: #fff; user-select: none;`} class="h-16 w-16 shrink-0 overflow-hidden rounded-full grid place-items-center text-xl font-semibold">
 					{#if avatarUrl}
 						<img src={avatarUrl} alt="Avatar" class="h-full w-full object-cover" />
 					{:else}

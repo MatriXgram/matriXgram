@@ -29,6 +29,7 @@
     pickerCustomEmoji: PickerCustomEmoji[];
     roomEncrypted: boolean;
     roomName: string;
+    isDirect?: boolean;
     loadingMessages: boolean;
     activeLoadKind: string | null;
     streamMessageCount: number;
@@ -58,6 +59,7 @@
     pickerCustomEmoji,
     roomEncrypted, 
     roomName, 
+    isDirect = false,
     loadingMessages, 
     activeLoadKind, 
     streamMessageCount, 
@@ -92,6 +94,8 @@
       {activeLoadKind}
       {streamMessageCount}
       roomId={roomId}
+      {currentUserId}
+      {isDirect}
       onOpenSettings={onOpenRoomSettings}
     />
 

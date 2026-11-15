@@ -22,7 +22,7 @@
       class="flex min-w-0 flex-1 items-center gap-2 rounded p-2 text-left"
       onclick={() => onSelectRootSpace?.(space.roomId)}
     >
-      <RoomAvatar imageUrl={imageUrl} displayName={space.displayName} />
+      <RoomAvatar imageUrl={imageUrl} displayName={space.displayName} identity={space.roomId} />
 
       <div class="min-w-0">
         <p class="font-medium truncate">{space.displayName}</p>

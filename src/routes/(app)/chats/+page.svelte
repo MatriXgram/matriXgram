@@ -1747,6 +1747,11 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
     return !selectedRoom.isDirect;
   }
+
+  function selectedRoomIsDirect(): boolean {
+    const selectedRoom = $shellChats.find((chat) => chat.roomId === $shellSelectedRoomId);
+    return Boolean(selectedRoom?.isDirect);
+  }
 </script>
 
 {#snippet mediaCaptionEmojiIcon()}
@@ -1777,6 +1782,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       roomId={dialogRoom.roomId}
       roomName={dialogRoom.displayName}
       isSpace={dialogRoom.kind === "space"}
+      isDirect={dialogRoom.isDirect}
       onClose={() => (roomSettingsDialogRoomId = null)}
     />
   {/if}
@@ -1811,6 +1817,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       pickerCustomEmoji={$shellPickerCustomEmoji}
       roomEncrypted={selectedRoomEncrypted()}
       roomName={$shellChats.find((chat) => chat.roomId === $shellSelectedRoomId)?.displayName ?? ""}
+      isDirect={selectedRoomIsDirect()}
       showSenderNames={selectedRoomIsGroup()}
       {loadingMessages}
       {activeLoadKind}

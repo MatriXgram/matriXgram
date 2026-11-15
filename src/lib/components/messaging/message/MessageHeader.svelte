@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TimelineMessage } from "../shared";
+  import { senderNameColor } from "$lib/avatars";
 
   interface Props {
     message: TimelineMessage;
@@ -15,7 +16,7 @@
 </script>
 
 {#if show}
-  <button type="button" onclick={onOpenProfile} title={message.sender} class="cursor-pointer text-left hover:underline focus-visible:underline mb-0.5 block max-w-full truncate text-[14px] font-semibold leading-tight text-accent">
+  <button type="button" onclick={onOpenProfile} title={message.sender} style={`color: ${senderNameColor(message.sender)};`} class="cursor-pointer text-left hover:underline focus-visible:underline mb-0.5 block max-w-full truncate text-[14px] font-semibold leading-tight">
     {senderLabel}
   </button>
 {/if}

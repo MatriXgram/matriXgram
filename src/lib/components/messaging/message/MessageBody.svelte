@@ -4,6 +4,7 @@
   import { senderAvatarCache } from "$lib/components/navigation/shared/image-cache.svelte";
   import { openUserProfile } from "$lib/chats/user-profile";
   import { userIdFromMatrixLink } from "$lib/chats/matrixLinks";
+  import { avatarBackground, initialsForName } from "$lib/avatars";
   import { stripMxReplyBlock, stripPlainReplyFallback } from "../shared";
   import type { TimelineMessage } from "../shared";
 
@@ -119,12 +120,15 @@
       link.prepend(avatar);
 
       const displayLabel = link.textContent?.trim().replace(/^@/, "") ?? "";
-      const initial = Array.from(displayLabel)[0]?.toLocaleUpperCase() || userId.replace(/^@/, "")[0]?.toLocaleUpperCase() || "•";
+      const initial = initialsForName(displayLabel || userId);
       const showInitial = () => {
         if (!active || !link.isConnected || !avatar.isConnected) return;
         const fallback = document.createElement("span");
         fallback.className = "matrix-mention-avatar-fallback";
         fallback.textContent = initial;
+        fallback.style.background = avatarBackground(userId);
+        fallback.style.color = "#fff";
+        fallback.style.userSelect = "none";
         fallback.setAttribute("aria-hidden", "true");
         avatar.replaceWith(fallback);
       };

@@ -4,6 +4,7 @@
   import { getCachedPublicRooms, matrixJoinRoom, matrixSearchPublicRooms, matrixTriggerRoomUpdate } from "$lib/chats/api";
   import { shellChats, shellCurrentUserId } from "$lib/chats/shell";
   import type { MatrixPublicRoom } from "$lib/chats/types";
+  import { avatarBackground, initialsForName } from "$lib/avatars";
 
   const STORAGE_KEY = "matrixgram.community-directories";
   const LEGACY_STORAGE_KEY = "matrix-telegram.community-directories";
@@ -252,7 +253,7 @@
           <ul class="mx-auto grid max-w-5xl grid-cols-1 gap-x-0 gap-y-1 md:grid-cols-2 md:divide-x md:divide-hairline">
             {#each rooms as room (room.roomId)}
               <li role="button" tabindex="0" class="flex min-w-0 cursor-pointer gap-2 border-b border-hairline px-1 py-2 transition-colors hover:bg-panel-alt/40 focus-visible:bg-panel-alt/40 md:px-2" onclick={() => selectedRoom = room} onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectedRoom = room; } }}>
-                {#if room.avatarUrl && !failedAvatars.includes(room.roomId)}<img src={room.avatarUrl} alt="" loading="lazy" class="size-12 shrink-0 rounded-full object-cover" onerror={() => { failedAvatars = [...failedAvatars, room.roomId]; }} />{:else}<div class="grid size-12 shrink-0 place-items-center rounded-full bg-panel-alt text-lg font-semibold text-muted">{(room.name || room.canonicalAlias || "#").slice(0, 1).toUpperCase()}</div>{/if}
+                {#if room.avatarUrl && !failedAvatars.includes(room.roomId)}<img src={room.avatarUrl} alt="" loading="lazy" class="size-12 shrink-0 rounded-full object-cover" onerror={() => { failedAvatars = [...failedAvatars, room.roomId]; }} />{:else}<div style={`background: ${avatarBackground(room.roomId)}; color: #fff; user-select: none;`} class="grid size-12 shrink-0 place-items-center rounded-full text-lg font-semibold">{initialsForName(room.name || room.canonicalAlias || room.roomId)}</div>{/if}
                 <div class="min-w-0 flex-1">
                   <h3 class="truncate text-sm font-semibold">{room.name || room.canonicalAlias || room.roomId}</h3>
                   {#if room.canonicalAlias}<p class="truncate text-xs text-muted">{room.canonicalAlias}</p>{/if}
@@ -277,7 +278,7 @@
   <div class="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) selectedRoom = null; }} onkeydown={(event) => { if (event.key === "Escape") selectedRoom = null; }}>
     <section class="w-full max-w-lg border border-hairline bg-panel shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="community-room-title">
       <div class="flex items-start gap-4 border-b border-hairline p-4">
-        {#if selectedRoom.avatarUrl && !failedAvatars.includes(selectedRoom.roomId)}<img src={selectedRoom.avatarUrl} alt="" class="size-16 shrink-0 rounded-full object-cover" onerror={() => { failedAvatars = [...failedAvatars, selectedRoom!.roomId]; }} />{:else}<div class="grid size-16 shrink-0 place-items-center rounded-full bg-panel-alt text-xl font-semibold text-muted">{(selectedRoom.name || selectedRoom.canonicalAlias || "#").slice(0, 1).toUpperCase()}</div>{/if}
+        {#if selectedRoom.avatarUrl && !failedAvatars.includes(selectedRoom.roomId)}<img src={selectedRoom.avatarUrl} alt="" class="size-16 shrink-0 rounded-full object-cover" onerror={() => { failedAvatars = [...failedAvatars, selectedRoom!.roomId]; }} />{:else}<div style={`background: ${avatarBackground(selectedRoom.roomId)}; color: #fff; user-select: none;`} class="grid size-16 shrink-0 place-items-center rounded-full text-xl font-semibold">{initialsForName(selectedRoom.name || selectedRoom.canonicalAlias || selectedRoom.roomId)}</div>{/if}
         <div class="min-w-0 flex-1"><h2 id="community-room-title" class="break-words text-lg font-semibold">{selectedRoom.name || selectedRoom.canonicalAlias || selectedRoom.roomId}</h2><p class="mt-1 text-sm text-muted">{selectedRoom.joinedMembers.toLocaleString()} members · {selectedRoom.directoryServer}</p></div>
         <button type="button" class="grid size-8 shrink-0 cursor-pointer place-items-center text-secondary hover:text-primary" aria-label="Close room details" onclick={() => selectedRoom = null}>×</button>
       </div>

@@ -19,7 +19,7 @@
   });
 </script>
 <div class="flex items-center gap-2 rounded-lg px-2 py-0.5 transition-colors hover:bg-accent-soft">
-  <MessageAvatar {roomId} sender={userId} onOpenProfile={(avatarUrl) => openUserProfile({ roomId, userId, displayName: name, avatarUrl })} />
+  <MessageAvatar {roomId} sender={userId} displayName={name || fallback} onOpenProfile={(avatarUrl) => openUserProfile({ roomId, userId, displayName: name, avatarUrl })} />
   <button type="button" class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded text-left focus-visible:ring-1 focus-visible:ring-accent"
     onclick={() => openUserProfile({ roomId, userId, displayName: name })}>
     <span class="min-w-0 flex-1">

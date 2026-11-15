@@ -6,6 +6,7 @@
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
   import { matrixSessionStatus } from "$lib/auth/api";
+  import { avatarBackground, initialsForName } from "$lib/avatars";
   import { matrixGetProfile, matrixRoomLeave } from "$lib/settings/api";
   import {
     matrixGetChatNavigation,
@@ -553,11 +554,11 @@
     >
       <div class="app-sidebar relative flex min-h-0 min-w-0 flex-col bg-panel p-2">
         {#if isCommunityExplorer}
-          <div class="mx-auto my-2 grid size-10 shrink-0 place-items-center overflow-hidden rounded-full border border-hairline bg-accent-soft text-sm font-semibold text-accent" title={$shellCurrentUserId} aria-label={$shellCurrentUserId}>
+          <div style={`background: ${avatarBackground($shellCurrentUserId)}; color: #fff; user-select: none;`} class="mx-auto my-2 grid size-10 shrink-0 place-items-center overflow-hidden rounded-full text-sm font-semibold" title={$shellCurrentUserId} aria-label={$shellCurrentUserId}>
             {#if currentUserAvatar}
               <img src={currentUserAvatar} alt="" class="h-full w-full object-cover" onerror={() => (currentUserAvatar = null)} />
             {:else}
-              {$shellCurrentUserId.replace(/^@/, "").charAt(0).toUpperCase() || "•"}
+              {initialsForName($shellCurrentUserId)}
             {/if}
           </div>
         {:else}

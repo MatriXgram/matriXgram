@@ -1,5 +1,6 @@
 <script lang="ts">
   import { toggleMode } from "$lib/theme";
+  import { avatarBackground, initialsForName } from "$lib/avatars";
 
   interface Props {
     userId: string;
@@ -23,11 +24,11 @@
 
 <header class="account-header flex items-center justify-between gap-3">
   <div class="flex min-w-0 items-center gap-3">
-    <div class="account-avatar grid size-10 shrink-0 place-items-center overflow-hidden rounded-full border border-hairline bg-accent-soft text-sm font-semibold text-accent" title={userId}>
+    <div style={`background: ${avatarBackground(userId)}; color: #fff; user-select: none;`} class="account-avatar grid size-10 shrink-0 place-items-center overflow-hidden rounded-full text-sm font-semibold" title={userId}>
       {#if avatarUrl && !avatarFailed}
         <img src={avatarUrl} alt="" class="h-full w-full object-cover" onerror={() => (avatarFailed = true)} />
       {:else}
-        {displayName.charAt(0).toUpperCase()}
+        {initialsForName(displayName)}
       {/if}
     </div>
     <div class="min-w-0">

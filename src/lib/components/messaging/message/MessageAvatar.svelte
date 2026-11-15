@@ -1,21 +1,23 @@
 <script lang="ts">
 import { matrixGetUserAvatar } from "$lib/chats/api";
 import { avatarChangeEpoch, senderAvatarCache } from "$lib/components/navigation/shared/image-cache.svelte";
+import { avatarBackground, initialsForName } from "$lib/avatars";
 
   interface Props {
     roomId: string;
     sender: string;
+    displayName?: string | null;
     onOpenProfile?: (avatarUrl: string | null) => void;
   }
 
-  let { roomId, sender, onOpenProfile }: Props = $props();
+  let { roomId, sender, displayName, onOpenProfile }: Props = $props();
 
   let lazyImageUrl = $state<string | null>(null);
 
   const avatarLabel = $derived.by(() => {
     const localPart = sender.includes(":") ? sender.slice(0, sender.indexOf(":")) : sender;
     const normalized = localPart.replace(/^@/, "").trim();
-    return normalized.charAt(0).toUpperCase() || "#";
+    return initialsForName(displayName?.trim() || normalized || sender);
   });
 
   const avatarEpoch = $derived(avatarChangeEpoch.current);
@@ -42,11 +44,12 @@ import { avatarChangeEpoch, senderAvatarCache } from "$lib/components/navigation
   type="button"
   onclick={() => onOpenProfile?.(lazyImageUrl)}
   aria-label={`View profile of ${sender}`}
-  class="cursor-pointer transition hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent h-8 w-8 shrink-0 overflow-hidden rounded-full bg-surface-200-800 grid place-items-center text-xs font-semibold text-surface-800-200"
+  style={`background: ${avatarBackground(sender)}; color: #fff; user-select: none;`}
+  class="cursor-pointer transition hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent h-8 w-8 shrink-0 overflow-hidden rounded-full grid place-items-center text-xs font-semibold"
   title={sender}
 >
   {#if lazyImageUrl}
-    <img src={lazyImageUrl} alt="" class="h-full w-full object-cover" loading="lazy" decoding="async" />
+    <img src={lazyImageUrl} alt="" class="h-full w-full object-cover" loading="lazy" decoding="async" onerror={() => (lazyImageUrl = null)} />
   {:else}
     <span>{avatarLabel}</span>
   {/if}

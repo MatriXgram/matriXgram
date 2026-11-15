@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { avatarBackground, initialsForName } from "$lib/avatars";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import {
@@ -17,10 +18,11 @@
 		MatrixRoomSettingsResponse,
 		MatrixRoomTag,
 } from "$lib/settings/types";
-	import { matrixGetRoomImage, matrixGetRoomMembers, matrixTriggerRoomUpdate } from "$lib/chats/api";
-	import { shellErrorMessage, shellSelectedRoomId } from "$lib/chats/shell";
+	import { matrixGetRoomImage, matrixGetUserAvatar, matrixTriggerRoomUpdate } from "$lib/chats/api";
+	import { getRoomMembersCached } from "$lib/chats/room-members-cache";
+	import { shellCurrentUserId, shellErrorMessage, shellSelectedRoomId } from "$lib/chats/shell";
 	import type { MatrixRoomMember } from "$lib/chats/types";
-	import { roomImageCache } from "$lib/components/navigation/shared/image-cache.svelte";
+	import { roomImageCache, senderAvatarCache } from "$lib/components/navigation/shared/image-cache.svelte";
 	import MessageAvatar from "$lib/components/messaging/message/MessageAvatar.svelte";
 	import { openUserProfile } from "$lib/chats/user-profile";
 	import { KeywordEditor, NotificationModeSelector } from "$lib/components/settings";
@@ -30,15 +32,18 @@
 		roomId: string;
 		roomName: string;
 		isSpace: boolean;
+		isDirect?: boolean;
 		onClose: () => void;
 	}
 
-	let { open, roomId, roomName, isSpace, onClose }: Props = $props();
+	let { open, roomId, roomName, isSpace, isDirect = false, onClose }: Props = $props();
 
 	let dialogElement: HTMLDialogElement | undefined = $state();
 	let settings = $state<MatrixRoomSettingsResponse | null>(null);
 	let roomAvatarUrl = $state<string | null>(null);
 	let roomMembers = $state<MatrixRoomMember[]>([]);
+	let directPeerId = $state<string | null>(null);
+	let directPeerName = $state("");
 	let loading = $state(false);
 	let saving = $state(false);
 	let errorMessage = $state("");
@@ -75,6 +80,8 @@
 		settings = null;
 		roomAvatarUrl = null;
 		roomMembers = [];
+		directPeerId = null;
+		directPeerName = "";
 		errorMessage = "";
 		newTagName = "";
 		confirmingLeave = false;
@@ -90,13 +97,18 @@
 			const [nextSettings, nextKeywords, nextMembers, nextAvatar] = await Promise.all([
 				matrixRoomGetSettings({ roomId }),
 				matrixRoomGetKeywords({ roomId }).then((response) => response.keywords),
-				matrixGetRoomMembers(roomId).catch(() => []),
+				getRoomMembersCached(roomId).catch(() => []),
 				roomImageCache.getOrLoad(roomId, () => matrixGetRoomImage(roomId)),
 			]);
 			settings = nextSettings;
 			roomKeywords = nextKeywords;
 			roomMembers = nextMembers;
-			roomAvatarUrl = nextAvatar;
+			const peer = isDirect ? nextMembers.find((member) => member.userId !== $shellCurrentUserId) : null;
+			directPeerId = peer?.userId ?? null;
+			directPeerName = peer?.displayName ?? "";
+			roomAvatarUrl = peer
+				? await senderAvatarCache.getOrLoad(`${roomId}\u0000${peer.userId}`, () => matrixGetUserAvatar(roomId, peer.userId))
+				: nextAvatar;
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : "Failed to load settings";
 		} finally {
@@ -318,11 +330,11 @@
 			{#if activeTab === "profile"}
 				<section class="card space-y-3 p-3 preset-outlined-surface-300-700 bg-surface-50-950">
 					<div class="flex items-center gap-3">
-						<div class="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full bg-primary-500/15 text-lg font-semibold text-primary-600-400">
+						<div style={`background: ${avatarBackground(isDirect ? directPeerId ?? roomId : roomId)}; color: #fff; user-select: none;`} class="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full text-lg font-semibold">
 							{#if roomAvatarUrl}
 								<img src={roomAvatarUrl} alt="" class="size-full object-cover" onerror={() => (roomAvatarUrl = null)} />
 							{:else}
-								{roomName.slice(0, 1).toUpperCase() || "#"}
+								{initialsForName(isDirect ? directPeerName || roomName : roomName)}
 							{/if}
 						</div>
 						<div class="min-w-0">
@@ -388,6 +400,7 @@
 									<MessageAvatar
 									{roomId}
 									sender={member.userId}
+									displayName={member.displayName}
 									onOpenProfile={(avatarUrl) => openUserProfile({ roomId, userId: member.userId, displayName: member.displayName, avatarUrl })}
 								/>
 									<button type="button" class="min-w-0 flex-1 cursor-pointer text-left" onclick={() => openUserProfile({ roomId, userId: member.userId, displayName: member.displayName })}>

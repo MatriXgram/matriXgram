@@ -1,6 +1,7 @@
 <script lang="ts">
   import { matrixGetUserAvatar } from "$lib/chats/api";
   import { avatarChangeEpoch, senderAvatarCache } from "$lib/components/navigation/shared/image-cache.svelte";
+  import { avatarBackground, initialsForName } from "$lib/avatars";
 
   interface Props {
     roomId: string;
@@ -26,10 +27,10 @@
   });
 </script>
 
-<span class="grid size-8 shrink-0 place-items-center overflow-hidden rounded-full bg-panel-alt text-xs font-semibold text-secondary" aria-hidden="true">
+<span style={`background: ${avatarBackground(userId)}; color: #fff; user-select: none;`} class="grid size-8 shrink-0 place-items-center overflow-hidden rounded-full text-xs font-semibold" aria-hidden="true">
   {#if imageUrl}
-    <img src={imageUrl} alt="" class="h-full w-full object-cover" loading="lazy" decoding="async" />
+    <img src={imageUrl} alt="" class="h-full w-full object-cover" loading="lazy" decoding="async" onerror={() => (imageUrl = null)} />
   {:else}
-    {displayName.charAt(0).toUpperCase() || "?"}
+    {initialsForName(displayName || userId)}
   {/if}
 </span>

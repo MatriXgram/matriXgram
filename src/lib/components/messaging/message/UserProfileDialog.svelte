@@ -4,6 +4,7 @@
   import { matrixGetChats, matrixOpenDirectChat } from "$lib/chats/api";
   import { shellChats, shellCurrentUserId, shellSelectedRoomId, shellSelectedRootSpaceId } from "$lib/chats/shell";
   import type { MatrixUserProfileResponse } from "$lib/chats/types";
+  import { avatarBackground, initialsForName } from "$lib/avatars";
 
   let dialog = $state<HTMLDialogElement | null>(null);
   let profile = $state<MatrixUserProfileResponse | null>(null);
@@ -60,8 +61,8 @@
     <button type="button" class="btn btn-sm" aria-label="Close profile" disabled={starting} onclick={() => profileTarget.set(null)}>✕</button>
   </header>
   {#if $profileTarget}
-    <div class="mx-auto mb-3 grid size-20 place-items-center overflow-hidden rounded-full bg-accent-soft text-2xl text-accent">
-      {#if avatar}<img src={avatar} alt={name} class="size-full object-cover" />{:else}{name.charAt(0).toUpperCase()}{/if}
+    <div style={`background: ${avatarBackground($profileTarget.userId)}; color: #fff; user-select: none;`} class="mx-auto mb-3 grid size-20 place-items-center overflow-hidden rounded-full text-2xl font-semibold">
+      {#if avatar}<img src={avatar} alt={name} class="size-full object-cover" />{:else}{initialsForName(name)}{/if}
     </div>
     <h3 class="mb-5 break-words text-center text-lg font-semibold">{name}</h3>
     <dl class="space-y-3 text-sm">

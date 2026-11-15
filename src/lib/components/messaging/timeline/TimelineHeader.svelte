@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { matrixGetRoomImage, matrixGetRoomMembers } from "$lib/chats/api";
+  import { matrixGetRoomImage } from "$lib/chats/api";
+  import { getRoomMembersCached } from "$lib/chats/room-members-cache";
   import type { MatrixRoomMember } from "$lib/chats/types";
   import { openUserProfile } from "$lib/chats/user-profile";
   import { RoomAvatar, roomImageCache, roomImageChangeEpoch } from "$lib/components/navigation/shared";
@@ -13,6 +14,8 @@
     activeLoadKind: string | null;
     streamMessageCount: number;
     roomId?: string | null;
+    currentUserId?: string | null;
+    isDirect?: boolean;
     onOpenSettings?: (roomId: string) => void;
   }
 
@@ -23,6 +26,8 @@
     activeLoadKind,
     streamMessageCount,
     roomId,
+    currentUserId = null,
+    isDirect = false,
     onOpenSettings,
   }: Props = $props();
   let roomImage = $state<string | null>(null);
@@ -42,6 +47,7 @@
     }];
   }));
   const latestBotMember = $derived(botMembers.at(-1) ?? null);
+  const directMember = $derived(isDirect ? roomMembers.find((member) => member.userId !== currentUserId) ?? null : null);
 
   function openBotMembersPopup() {
     if (botPopupCloseTimer) clearTimeout(botPopupCloseTimer);
@@ -84,7 +90,7 @@
     showAllBotMembers = false;
     if (!id) return;
     let cancelled = false;
-    void matrixGetRoomMembers(id).then((members) => {
+    void getRoomMembersCached(id).then((members) => {
       if (!cancelled) roomMembers = members;
     }).catch(() => {
       if (!cancelled) roomMembers = [];
@@ -95,7 +101,12 @@
 
 <header class="conversation-header flex items-center justify-between border-b border-hairline bg-panel">
   <div class="flex min-w-0 items-center gap-3">
-    <RoomAvatar imageUrl={roomImage} displayName={roomName} />
+    {#if directMember && roomId}
+      <MessageAvatar roomId={roomId} sender={directMember.userId} displayName={directMember.displayName || roomName}
+        onOpenProfile={(avatarUrl) => openUserProfile({ roomId, userId: directMember.userId, displayName: directMember.displayName || roomName, avatarUrl })} />
+    {:else}
+      <RoomAvatar imageUrl={roomImage} displayName={roomName} identity={roomId ?? roomName} />
+    {/if}
     <div class="min-w-0">
     <h2 class="conversation-title truncate leading-tight">{roomName}</h2>
     <div class="flex min-w-0 items-center gap-1 text-[11px] text-secondary">
@@ -117,7 +128,7 @@
               <div class="absolute top-full right-0 z-50 mt-1 max-h-72 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-hairline bg-panel text-left text-primary shadow-xl" role="list" aria-label="Bots and crawlers in this room" onpointerenter={openBotMembersPopup} onpointerleave={scheduleBotMembersPopupClose}>
                 {#each botMembers as member (`${member.kind}:${member.userId}`)}
                   <div class="flex min-w-0 items-center gap-2 border-b border-hairline px-2 py-2 last:border-b-0">
-                    <MessageAvatar roomId={roomId ?? ""} sender={member.userId} onOpenProfile={(avatarUrl) => showBotProfile(member, avatarUrl)} />
+                    <MessageAvatar roomId={roomId ?? ""} sender={member.userId} displayName={member.label} onOpenProfile={(avatarUrl) => showBotProfile(member, avatarUrl)} />
                     <button type="button" class="min-w-0 flex-1 cursor-pointer text-left" onclick={() => showBotProfile(member)}>
                       <span class="block truncate text-sm">{member.label}</span>
                       <span class="block truncate font-mono text-[11px] text-secondary">{member.userId}</span>

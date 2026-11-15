@@ -24,7 +24,7 @@
     class={buttonClasses(selected)}
     onclick={() => onSelectRootSpace?.(space.roomId)}
   >
-    <RoomAvatar imageUrl={imageUrl} displayName={space.displayName} />
+    <RoomAvatar imageUrl={imageUrl} displayName={space.displayName} identity={space.roomId} />
 
     <div class="min-w-0">
       <p class="font-medium truncate">{space.displayName}</p>

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { matrixGetRoomImage, matrixJoinRoom, matrixTriggerRoomUpdate } from "$lib/chats/api";
+  import { getDirectRoomPeer } from "$lib/chats/room-members-cache";
   import type { MatrixChatSummary } from "$lib/chats/types";
-  import { shellErrorMessage } from "$lib/chats/shell";
+  import { shellCurrentUserId, shellErrorMessage } from "$lib/chats/shell";
   import { toChatListTime } from "$lib/components/messaging/shared";
   import { RoomAvatar, RoomSettingsDialog, isVirtualRoomId, roomImageCache, roomImageChangeEpoch } from "../shared";
 
@@ -29,6 +30,7 @@
 
   const isSpace = $derived(room.kind === "space");
   let lazyImageUrl = $state<string | null | undefined>(null);
+  let directPeerId = $state<string | null>(null);
   let settingsDialogOpen = $state(false);
   let isContextMenuOpen = $state(false);
   let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
@@ -40,6 +42,18 @@
   const previewSenderSeparator = $derived(room.lastMessagePreview?.indexOf(": ") ?? -1);
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
+  const avatarIdentity = $derived(room.isDirect ? directPeerId ?? room.roomId : room.roomId);
+
+  $effect(() => {
+    const roomId = room.roomId;
+    directPeerId = null;
+    if (!room.isDirect) return;
+    let cancelled = false;
+    void getDirectRoomPeer(roomId, $shellCurrentUserId).then((peer) => {
+      if (!cancelled && room.roomId === roomId) directPeerId = peer?.userId ?? null;
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  });
 
   $effect(() => {
     const cacheEpoch = roomImageChangeEpoch.current;
@@ -169,7 +183,7 @@
 <li class={compact ? "flex justify-center py-0.5" : undefined} oncontextmenu={openContextMenu}>
   {#if compact}
     <button type="button" class={`relative grid size-11 cursor-pointer place-items-center rounded-full transition-all duration-150 hover:scale-105 hover:bg-accent-soft hover:ring-1 hover:ring-accent/40 ${isSelected ? "bg-primary-100-900 ring-1 ring-accent/40" : ""}`} title={`${room.displayName}${room.unreadCount ? ` · ${room.unreadCount} unread` : ""}`} aria-label={`Open ${room.displayName}`} aria-current={isSelected ? "true" : undefined} onclick={handleClick}>
-      <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} />
+      <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} identity={avatarIdentity} />
       {#if room.unreadCount > 0}<span class="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-badge px-1 text-center text-[9px] font-semibold leading-4 text-badge-fg">{room.unreadCount > 99 ? "99+" : room.unreadCount}</span>{/if}
     </button>
   {:else}
@@ -190,7 +204,7 @@
       onclick={handleClick}
     >
       <div class="flex items-center gap-3 min-w-0">
-        <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} />
+        <RoomAvatar imageUrl={lazyImageUrl} displayName={room.displayName} identity={avatarIdentity} />
 
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline justify-between gap-2">
@@ -302,6 +316,7 @@
       roomId={room.roomId}
       roomName={room.displayName}
       isSpace={isSpace}
+      isDirect={room.isDirect}
       onClose={() => (settingsDialogOpen = false)}
     />
   {/if}
