@@ -12,6 +12,7 @@ import type {
   MatrixGetUserAvatarResponse,
   MatrixGetChatMessagesRequest,
   MatrixGetChatMessagesResponse,
+  MatrixGetThreadMessagesRequest,
   MatrixGetRoomMembersRequest,
   MatrixRoomMember,
   MatrixPickerCustomEmoji,
@@ -145,6 +146,15 @@ export async function matrixGetChatMessages(
     ...response,
     messages: response.messages.map(normalizeMessageImageUrl),
   };
+}
+
+export async function matrixGetThreadMessages(
+  input: MatrixGetThreadMessagesRequest,
+): Promise<MatrixChatMessage[]> {
+  const messages = await invokeMatrixCommand<MatrixChatMessage[]>("matrix_get_thread_messages", {
+    request: input,
+  });
+  return messages.map(normalizeMessageImageUrl);
 }
 
 export async function matrixStreamChatMessages(

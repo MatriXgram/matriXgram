@@ -117,6 +117,8 @@ pub async fn send_room_message_from_client(
     body: &str,
     picker_custom_emoji: &[MatrixPickerCustomEmoji],
     in_reply_to_event_id_raw: Option<&str>,
+    thread_root_event_id_raw: Option<&str>,
+    thread_fallback: bool,
     formatted_body_override: Option<&str>,
     mentioned_user_ids: &[String],
 ) -> Result<String, String> {
@@ -155,7 +157,20 @@ pub async fn send_room_message_from_client(
         content = content.add_mentions(Mentions::with_user_ids(user_ids));
     }
 
-    if let Some(in_reply_to_event_id_raw) = in_reply_to_event_id_raw {
+    if let Some(thread_root_event_id_raw) = thread_root_event_id_raw {
+        use matrix_sdk::ruma::events::relation::Thread;
+
+        let thread_root_event_id = parse_event_id(thread_root_event_id_raw)?;
+        let reply_to_event_id = in_reply_to_event_id_raw
+            .map(parse_event_id)
+            .transpose()?
+            .unwrap_or_else(|| thread_root_event_id.clone());
+        content.relates_to = Some(Relation::Thread(if thread_fallback {
+            Thread::plain(thread_root_event_id, reply_to_event_id)
+        } else {
+            Thread::reply(thread_root_event_id, reply_to_event_id)
+        }));
+    } else if let Some(in_reply_to_event_id_raw) = in_reply_to_event_id_raw {
         let in_reply_to_event_id = parse_event_id(in_reply_to_event_id_raw)?;
         content.relates_to = Some(Relation::Reply(
             matrix_sdk::ruma::events::relation::Reply::new(InReplyTo::new(in_reply_to_event_id)),

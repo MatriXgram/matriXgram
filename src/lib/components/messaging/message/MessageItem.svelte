@@ -12,6 +12,7 @@
   import { toClockTime } from "../shared";
   import {
     MessageActionMenu,
+    MessageAvatar,
     MessageBody,
     MessageEncryptionState,
     MessageHeader,
@@ -21,6 +22,7 @@
     ReplyQuote,
   } from ".";
   import { EmojiPickerPopover } from "../composer-emoji";
+  import ThreadParticipantAvatar from "./ThreadParticipantAvatar.svelte";
 
   interface Props {
     message: TimelineMessage;
@@ -36,6 +38,7 @@
     onTogglePinned?: (message: TimelineMessage, pinned: boolean) => void;
     onCopy?: (message: TimelineMessage) => void;
     onJumpToMessage?: JumpToMessageHandler;
+    onOpenThread?: (message: TimelineMessage) => void;
     repliedMessage?: TimelineMessage;
     currentUserId?: string | null;
     pickerCustomEmoji?: PickerCustomEmoji[];
@@ -46,6 +49,8 @@
     groupEnd?: boolean;
     /// Show the sender name at the top of the bubble (group chats).
     showSenderName?: boolean;
+    /// Show the sender avatar for incoming messages (used in thread views).
+    showAvatar?: boolean;
   }
 
   let {
@@ -62,6 +67,7 @@
     onTogglePinned,
     onCopy,
     onJumpToMessage,
+    onOpenThread,
     repliedMessage,
     currentUserId = null,
     pickerCustomEmoji = [],
@@ -69,6 +75,7 @@
     grouped = false,
     groupEnd = false,
     showSenderName = false,
+    showAvatar = false,
   }: Props = $props();
 
   let optionsButtonElement: HTMLButtonElement | null = $state(null);
@@ -246,6 +253,14 @@
   oncontextmenu={openReactionBar}
 >
 
+  {#if showAvatar && !isOwn}
+    <MessageAvatar
+      {roomId}
+      sender={message.sender}
+      displayName={message.senderDisplayName}
+      onOpenProfile={(avatarUrl) => showProfile(avatarUrl)}
+    />
+  {/if}
 
   <div class="flex min-w-0 max-w-[78%] flex-col" class:items-end={isOwn}>
     <div
@@ -289,9 +304,6 @@
           {#if message.editedAt && !message.isDeleted}
             <span class="italic">edited</span>
           {/if}
-          {#if message.threadReplyCount > 0}
-            <span class="font-semibold">{message.threadReplyCount} replies</span>
-          {/if}
           <span class="shrink-0 whitespace-nowrap">{toClockTime(message.timestamp)}</span>
           <MessageEncryptionState {message} />
           {#if message.sendState === "sending"}
@@ -319,6 +331,25 @@
           {/if}
         </div>
       </div>
+      {#if message.threadReplyCount > 0 && message.eventId && onOpenThread}
+        <button
+          type="button"
+          class="thread-footer mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-1 pt-2 text-left text-[13px] transition hover:bg-accent/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+          aria-label={`Open thread with ${message.threadReplyCount} replies`}
+          onclick={() => onOpenThread?.(message)}
+        >
+          <span class="flex shrink-0 -space-x-1.5">
+            {#each message.threadParticipants.slice(0, 3) as participant (participant)}
+              <ThreadParticipantAvatar {roomId} userId={participant} bubbleColor={isOwn ? "var(--tg-bubble-out)" : "var(--tg-bubble-in)"} />
+            {/each}
+            {#if message.threadParticipants.length === 0}
+              <span class="grid size-5 place-items-center rounded-full border text-[10px] font-bold" style={`background:${isOwn ? "var(--tg-bubble-out)" : "var(--tg-bubble-in)"}; border-color:color-mix(in srgb, currentColor 12%, transparent)`} aria-hidden="true">↳</span>
+            {/if}
+          </span>
+          <span class="font-semibold text-accent">{message.threadReplyCount} {message.threadReplyCount === 1 ? "reply" : "replies"}</span>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" class="ml-auto size-4 shrink-0 text-accent" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg>
+        </button>
+      {/if}
     </div>
 
     <MessageSendState {message} {isSending} onRetry={onRetry} onRemove={message.messageType && message.messageType !== "m.text" ? onRemoveFailedMessage : undefined} />
@@ -338,6 +369,7 @@
     {message}
     position={actionMenuPosition}
     onReply={onReplyToMessage}
+    onOpenThread={onOpenThread}
     onForward={onForward}
     onDelete={isOwn && !message.isDeleted && message.sendState !== "sending" && message.eventId ? onDeleteMessage : undefined}
     {isPinned}
@@ -355,3 +387,13 @@
     onSelect={(token) => toggleReactionFromBar(message, token)}
   />
 </li>
+
+<style>
+  .thread-footer {
+    width: calc(100% + 1.3rem);
+    margin-inline: -0.65rem;
+    padding-inline: 0.65rem;
+    border-color: color-mix(in srgb, currentColor 12%, transparent);
+    border-radius: 0 0 12px 12px;
+  }
+</style>

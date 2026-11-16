@@ -1,10 +1,13 @@
 <script lang="ts">
   import { matrixGetRoomImage, matrixJoinRoom, matrixTriggerRoomUpdate } from "$lib/chats/api";
   import { getDirectRoomPeer } from "$lib/chats/room-members-cache";
+  import { isMediaUrl } from "$lib/chats/media";
+  import { normalizeShortcode } from "$lib/emoji/shortcodes";
   import type { MatrixChatSummary } from "$lib/chats/types";
   import { shellCurrentUserId, shellErrorMessage, shellPickerCustomEmoji } from "$lib/chats/shell";
   import { reactionNotices } from "$lib/chats/reaction-notifications";
   import { toChatListTime } from "$lib/components/messaging/shared";
+  import ReactionEmoji from "$lib/components/messaging/message/ReactionEmoji.svelte";
   import { RoomAvatar, RoomSettingsDialog, isVirtualRoomId, roomImageCache, roomImageChangeEpoch } from "../shared";
 
   interface Props {
@@ -45,10 +48,33 @@
   const latestReaction = $derived(roomReactions.at(-1));
   const showReactionPreview = $derived(latestReaction && latestReaction.timestamp >= (room.lastMessageTs ?? 0));
   const reactionPreviewEmoji = $derived.by(() => {
-    const key = latestReaction?.key ?? "";
-    if (!key.startsWith("mxc://")) return key;
-    const emoji = $shellPickerCustomEmoji.find((entry) => entry.sourceUrl === key);
-    return emoji?.shortcodes?.[0] ? `:${emoji.shortcodes[0].replace(/^:+|:+$/g, "")}:` : "custom emoji";
+    const key = latestReaction?.key.trim() ?? "";
+    if (!key) return null;
+
+    const normalizedKey = normalizeShortcode(key);
+    const emoji = $shellPickerCustomEmoji.find((entry) =>
+      entry.sourceUrl.trim() === key ||
+      entry.url.trim() === key ||
+      entry.shortcodes.some((shortcode) => normalizeShortcode(shortcode) === normalizedKey) ||
+      normalizeShortcode(entry.name) === normalizedKey,
+    );
+
+    if (emoji) {
+      return {
+        kind: "custom" as const,
+        mediaUrl: emoji.url,
+        sourceUrl: emoji.sourceUrl,
+        label: emoji.name,
+      };
+    }
+
+    // Custom reaction keys can be MXC URIs even when their pack is not in the
+    // currently loaded picker list; let the shared reaction image resolve it.
+    if (isMediaUrl(key)) {
+      return { kind: "custom" as const, mediaUrl: key, sourceUrl: key, label: "Custom emoji" };
+    }
+
+    return { kind: "text" as const, text: key };
   });
 
   const indentation = $derived(`${Math.max(0, depth) * 0.9}rem`);
@@ -235,7 +261,17 @@
           <div class="flex items-center justify-between gap-2">
             <p class="min-w-0 flex-1 truncate text-xs text-secondary">
               {#if showReactionPreview && latestReaction}
-                <span class="text-primary">{latestReaction.senderName}</span> reacted {reactionPreviewEmoji} to your message
+                <span class="text-primary">{latestReaction.senderName}</span> reacted
+                {#if reactionPreviewEmoji?.kind === "custom"}
+                  <ReactionEmoji
+                    mediaUrl={reactionPreviewEmoji.mediaUrl}
+                    sourceUrl={reactionPreviewEmoji.sourceUrl}
+                    label={reactionPreviewEmoji.label}
+                  />
+                {:else if reactionPreviewEmoji}
+                  {reactionPreviewEmoji.text}
+                {/if}
+                to your message
               {:else if room.lastMessagePreview}
                 {#if previewSenderSeparator >= 0}
                   <span class="text-primary">{room.lastMessagePreview.slice(0, previewSenderSeparator + 1)}</span>

@@ -6,6 +6,7 @@
     /// Screen position of the menu, in pixels.
     position: { x: number; y: number; originX?: "left" | "right"; originY?: "top" | "bottom" } | null;
     onReply?: (message: TimelineMessage) => void;
+    onOpenThread?: (message: TimelineMessage) => void;
     onForward?: (message: TimelineMessage) => void;
     onCopy?: (message: TimelineMessage) => void;
     onCopyImage?: (message: TimelineMessage) => void;
@@ -15,7 +16,7 @@
     onClose?: () => void;
   }
 
-  let { message, position, onReply, onForward, onCopy, onCopyImage, onDelete, isPinned = false, onTogglePinned, onClose }: Props = $props();
+  let { message, position, onReply, onOpenThread, onForward, onCopy, onCopyImage, onDelete, isPinned = false, onTogglePinned, onClose }: Props = $props();
 
   $effect(() => {
     if (!position) {
@@ -79,6 +80,23 @@
       </svg>
       Reply
     </button>
+
+    {#if message.eventId && onOpenThread}
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:bg-hover"
+        role="menuitem"
+        onclick={() => {
+          onOpenThread?.(message);
+          onClose?.();
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 shrink-0 text-secondary" aria-hidden="true">
+          <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8A8.5 8.5 0 0 1 8.7 3.9a8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z" />
+        </svg>
+        {message.threadReplyCount > 0 ? "Open thread" : "Start thread"}
+      </button>
+    {/if}
 
     <button
       type="button"

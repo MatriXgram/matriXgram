@@ -4,7 +4,7 @@ use storage::AppDb;
 use types::{EventSink, RoomUpdateTriggerState};
 
 use super::super::media::{CachedMediaResolver, DefaultMediaResolver};
-use super::fetch::fetch_room_messages_impl;
+use super::fetch::{fetch_room_messages_impl, hydrate_thread_summaries};
 use super::parsing::ReactionAccumulator;
 use super::stream::ChatMessageStreamer;
 use types::chat::{
@@ -82,8 +82,10 @@ pub async fn stream_room_messages_from_client(
     }
 }
 
-/// Paint timeline events already received by sync without a /messages request
-/// or media downloads. Returned in chronological order for the frontend.
+/// Paint timeline events already received by sync without a `/messages`
+/// request or media downloads. Thread counts are hydrated from `/relations`
+/// when the sync cache did not include bundled relation summaries. Returned in
+/// chronological order for the frontend.
 pub async fn cached_room_messages(
     client: &matrix_sdk::Client,
     room_id_raw: &str,
@@ -115,6 +117,7 @@ pub async fn cached_room_messages(
     if messages.is_empty() {
         return None;
     }
+    hydrate_thread_summaries(client, &room_id, &mut messages).await;
     Some(MatrixGetChatMessagesResponse {
         room_id: room_id_raw.into(),
         next_from: room.last_prev_batch(),

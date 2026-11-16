@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 /// The version this build expects. Bump it and append a migration to
 /// [`MIGRATIONS`] whenever the schema changes.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// Applied in ascending order. Each entry is `(version, sql)`: a database at
 /// version *n* runs every entry whose version is greater than *n*.
@@ -28,6 +28,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
         include_str!("migrations/004_message_image_dimensions.sql"),
     ),
     (5, include_str!("migrations/005_message_redaction.sql")),
+    (6, include_str!("migrations/006_message_threads.sql")),
 ];
 
 /// Brings `connection` up to [`SCHEMA_VERSION`].
@@ -276,7 +277,7 @@ mod tests {
              VALUES ('!room:example.org', 0, '@alice:example.org', 'hello', 0, 'plaintext', 'unknown', 0)",
             [],
         ).expect("old cached message");
-        migrate(&connection).expect("upgrade");
+        super::apply(&connection, &super::MIGRATIONS[2..3]).expect("sender name upgrade");
         let (sender, body, name): (String, String, Option<String>) = connection
             .query_row(
                 "SELECT sender, body, sender_display_name FROM message_cache",
@@ -287,6 +288,27 @@ mod tests {
         assert_eq!(sender, "@alice:example.org");
         assert_eq!(body, "hello");
         assert_eq!(name, None);
+        assert_eq!(version(&connection), 3);
+    }
+
+    #[test]
+    fn thread_metadata_upgrade_clears_legacy_timeline_cache() {
+        let connection = Connection::open_in_memory().expect("open");
+        super::apply(&connection, &super::MIGRATIONS[..5]).expect("schema through v5");
+        connection
+            .execute(
+                "INSERT INTO message_cache (room_id, sequence, sender, body, encrypted, decryption_status, verification_status, updated_at)
+                 VALUES ('!room:example.org', 0, '@alice:example.org', 'hello', 0, 'plaintext', 'unknown', 0)",
+                [],
+            )
+            .expect("legacy cached message");
+
+        migrate(&connection).expect("thread metadata upgrade");
+
+        let cached_count: i64 = connection
+            .query_row("SELECT count(*) FROM message_cache", [], |row| row.get(0))
+            .expect("count cached timeline rows");
+        assert_eq!(cached_count, 0);
         assert_eq!(version(&connection), SCHEMA_VERSION);
     }
 

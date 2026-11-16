@@ -297,7 +297,7 @@
     <button
       type="button"
       class="composer-tool btn shrink-0"
-      disabled={isDisabled || isSending}
+      disabled={isDisabled || isSending || !onChooseAttachment}
       title="Attach a file"
       aria-label="Attach a file"
       onclick={() => onChooseAttachment?.()}

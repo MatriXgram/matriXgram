@@ -881,6 +881,7 @@ dependencies = [
  "arboard",
  "assets",
  "auth",
+ "futures-util",
  "image",
  "log",
  "matrix-sdk",

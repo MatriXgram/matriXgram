@@ -6,6 +6,7 @@ import {
   matrixMarkRoomRead,
   matrixGetReadContext,
   matrixGetNewerMessages,
+  matrixGetThreadMessages,
   matrixGetUploadLimit,
   matrixPrefetchPinnedMessageContexts,
 } from "$lib/chats/api";
@@ -54,6 +55,7 @@ import type { ComposerMention } from "$lib/components/messaging/composer";
   import { EmojiPickerPopover } from "$lib/components/messaging/composer-emoji";
   import ForwardRoomPicker from "$lib/components/messaging/forward/ForwardRoomPicker.svelte";
   import { MessageTimeline } from "$lib/components/messaging/timeline";
+  import ThreadPanel from "$lib/components/messaging/timeline/ThreadPanel.svelte";
   import type { TimelineMessage } from "$lib/components/messaging/shared";
 import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shared";
 
@@ -91,6 +93,12 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   let prefetchedPinnedRoomsKey = "";
 
   let messages = $state<TimelineMessage[]>([]);
+  let activeThreadRoot = $state<TimelineMessage | null>(null);
+  let threadMessages = $state<TimelineMessage[]>([]);
+  let threadDraft = $state("");
+  let threadError = $state("");
+  let threadLoading = $state(false);
+  let threadLoadGeneration = 0;
   let nextFrom = $state<string | null>(null);
   let timelineElement = $state<HTMLElement | null>(null);
   let activeStreamId = $state("");
@@ -128,6 +136,12 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     });
     return unreadMessages.filter((message) => {
       if (message.mentionsMe) return true;
+      if (message.threadRootId) {
+        const root = messages.find((candidate) => candidate.eventId === message.threadRootId);
+        if (root?.sender === userId || messages.some((candidate) => candidate.threadRootId === message.threadRootId && candidate.sender === userId)) {
+          return true;
+        }
+      }
       if (!message.inReplyToEventId) return false;
       const target = messages.find((candidate) => candidate.eventId === message.inReplyToEventId);
       return target?.sender === userId || replyFallback(message).sender === userId;
@@ -145,6 +159,40 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   let readRequestInFlight = false;
 
   const seenEventIds = new Set<string>();
+  const mainTimelineMessages = $derived.by(() => {
+    const repliesByRoot = new Map<string, TimelineMessage[]>();
+    for (const message of messages) {
+      if (!message.threadRootId) continue;
+      const replies = repliesByRoot.get(message.threadRootId) ?? [];
+      replies.push(message);
+      repliesByRoot.set(message.threadRootId, replies);
+    }
+    return messages
+      .filter((message) => !message.threadRootId || message.isFallingBack)
+      .map((message) => {
+        if (!message.eventId) return message;
+        const replies = repliesByRoot.get(message.eventId);
+        const alsoSentToChat = Boolean(message.threadRootId && message.isFallingBack);
+        if (!replies?.length && !alsoSentToChat) return message;
+        const participants = [...new Set((replies ?? []).map((reply) => reply.sender))].slice(-3).reverse();
+        // Keep the fallback's actual inReplyToEventId: it can target any
+        // message in the discussion, not only the thread root.
+        return {
+          ...message,
+          threadReplyCount: Math.max(message.threadReplyCount, replies?.length ?? 0),
+          threadParticipants: participants.length ? participants : message.threadParticipants,
+        };
+      });
+  });
+  const activeThreadReplies = $derived.by(() => {
+    if (!activeThreadRoot?.eventId) return [] as TimelineMessage[];
+    const replies = new Map<string, TimelineMessage>();
+    for (const message of [...threadMessages, ...messages]) {
+      if (message.threadRootId !== activeThreadRoot.eventId) continue;
+      replies.set(message.eventId ?? message.localId ?? `${message.timestamp}:${message.sender}`, message);
+    }
+    return [...replies.values()].sort((left, right) => (left.timestamp ?? 0) - (right.timestamp ?? 0));
+  });
   const reactionStateOverrides = new Map<
     string,
     Map<string, { added: boolean; timeout: ReturnType<typeof setTimeout>; token: symbol }>
@@ -744,6 +792,9 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       verificationStatus: "unknown",
       isDeleted: false,
       threadReplyCount: 0,
+      threadParticipants: [],
+      threadRootId: null,
+      isFallingBack: false,
       mentionsMe: false,
       isSticker: false,
       isVoice: false,
@@ -779,6 +830,9 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       verificationStatus: "unknown",
       isDeleted: false,
       threadReplyCount: 0,
+      threadParticipants: [],
+      threadRootId: null,
+      isFallingBack: false,
       mentionsMe: false,
       isSticker: false,
       isVoice: false,
@@ -1212,6 +1266,8 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         formattedBody,
         mentionedUserIds: [...new Set(normalizedMentions.map((mention) => mention.userId))],
         inReplyToEventId,
+        threadRootEventId: null,
+        threadFallback: false,
       },
       localId,
       optimistic,
@@ -1437,6 +1493,8 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         roomId,
         body: message.body,
         inReplyToEventId: message.inReplyToEventId,
+        threadRootEventId: message.threadRootId ?? null,
+        threadFallback: message.isFallingBack,
         mentionedUserIds: [],
       },
       message.localId,
@@ -1464,6 +1522,92 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
     replyToMessage = message;
     composerFocusNonce += 1;
+  }
+
+  async function openThread(message: TimelineMessage) {
+    if (!message.eventId || selectedRoomIsDirect()) return;
+    activeThreadRoot = message;
+    threadMessages = [];
+    threadDraft = "";
+    threadError = "";
+    threadLoading = true;
+    const generation = ++threadLoadGeneration;
+    const roomId = $shellSelectedRoomId;
+    if (!roomId) {
+      threadLoading = false;
+      return;
+    }
+
+    try {
+      threadMessages = await matrixGetThreadMessages({ roomId, threadRootEventId: message.eventId });
+      if (generation !== threadLoadGeneration) return;
+      const participants = [...new Set(threadMessages.map((reply) => reply.sender))].slice(-3).reverse();
+      messages = messages.map((candidate) => candidate.eventId === message.eventId
+        ? { ...candidate, threadReplyCount: Math.max(candidate.threadReplyCount, threadMessages.length), threadParticipants: participants }
+        : candidate);
+    } catch (error) {
+      if (generation === threadLoadGeneration) {
+        threadError = error instanceof Error ? error.message : String(error);
+      }
+    } finally {
+      if (generation === threadLoadGeneration) threadLoading = false;
+    }
+  }
+
+  function closeThread() {
+    threadLoadGeneration++;
+    activeThreadRoot = null;
+    threadMessages = [];
+    threadDraft = "";
+    threadError = "";
+    threadLoading = false;
+  }
+
+  $effect(() => {
+    if (selectedRoomIsDirect() && activeThreadRoot) closeThread();
+  });
+
+  async function sendThreadReply(rawDraft?: string, mentions: ComposerMention[] = [], replyTarget: TimelineMessage | null = null) {
+    const root = activeThreadRoot;
+    const roomId = $shellSelectedRoomId;
+    const sourceDraft = rawDraft ?? threadDraft;
+    const leadingWhitespace = sourceDraft.length - sourceDraft.trimStart().length;
+    const body = sourceDraft.trim();
+    if (!root?.eventId || !roomId || !body || sendingMessage) return;
+
+    const normalizedMentions = mentions
+      .map((mention) => ({ ...mention, start: mention.start - leadingWhitespace, end: mention.end - leadingWhitespace }))
+      .filter((mention) => mention.start >= 0 && body.slice(mention.start, mention.end) === `@${mention.displayName}`);
+    const formattedBody = normalizedMentions.length > 0
+      ? formatBodyWithMentions(body, normalizedMentions)
+      : formatDraft(body);
+
+    // Keep replies in this thread while allowing an optional quote to any
+    // message displayed in the discussion.
+    const replyToEventId = replyTarget?.eventId ?? root.eventId;
+    const optimistic = {
+      ...buildOptimisticMessage(body, replyToEventId),
+      formattedBody,
+      threadRootId: root.eventId,
+      isFallingBack: true,
+    };
+    const localId = optimistic.localId;
+    if (!localId) return;
+
+    threadDraft = "";
+    messages = [...messages, optimistic];
+    messages = messages.map((message) => message.eventId === root.eventId
+      ? { ...message, threadReplyCount: message.threadReplyCount + 1, threadParticipants: [$shellCurrentUserId || "You", ...message.threadParticipants].slice(0, 3) }
+      : message);
+    await sendOptimisticMessage(roomId, {
+      roomId,
+      body,
+      inReplyToEventId: replyToEventId,
+      threadRootEventId: root.eventId,
+      threadFallback: true,
+      formattedBody,
+      mentionedUserIds: [...new Set(normalizedMentions.map((mention) => mention.userId))],
+    }, localId, optimistic);
   }
 
   async function handleDeleteMessage(message: TimelineMessage) {
@@ -1501,6 +1645,8 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         roomId,
         body: message.body,
         inReplyToEventId: null,
+        threadRootEventId: null,
+        threadFallback: false,
         mentionedUserIds: [],
         // Forwarding keeps the formatting of the original message. The reply
         // quote block is left out: it belongs to the conversation the
@@ -1554,6 +1700,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     activeMediaFilePath = "";
     mediaTranscodeProgress = null;
     replyToMessage = null;
+    closeThread();
     pendingRoomMessages = null;
     pendingOlderMessages = [];
     messages = [];
@@ -2050,9 +2197,10 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     </div>
   </section>
 {:else}
-  <div class="flex flex-col h-full min-w-0 overflow-x-hidden">
+  <div class="relative flex h-full min-w-0 overflow-hidden">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" class:hidden={Boolean(activeThreadRoot && !selectedRoomIsDirect())}>
     <MessageTimeline
-      {messages}
+      messages={mainTimelineMessages}
       roomId={$shellSelectedRoomId || ""}
       selectedRoomId={$shellSelectedRoomId}
       {unreadBoundaryId}
@@ -2088,6 +2236,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       onRemoveFailedMessage={removeFailedMessage}
       onToggleReaction={handleToggleReaction}
       onReplyToMessage={handleReplyToMessage}
+      onOpenThread={openThread}
       onForwardMessage={handleForwardMessage}
       onDeleteMessage={handleDeleteMessage}
       onLoadJumpContext={loadJumpContext}
@@ -2111,6 +2260,29 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         onClearReply={clearReplyToMessage}
       />
     </div>
+    </div>
+    {#if activeThreadRoot && !selectedRoomIsDirect()}
+      <ThreadPanel
+        root={activeThreadRoot}
+        replies={activeThreadReplies}
+        roomId={$shellSelectedRoomId}
+        currentUserId={$shellCurrentUserId || null}
+        pickerCustomEmoji={$shellPickerCustomEmoji}
+        loading={threadLoading}
+        error={threadError}
+        draft={threadDraft}
+        sending={sendingMessage}
+        isSending={sendingMessage || sendingMedia}
+        onClose={closeThread}
+        onDraftChange={(draft) => threadDraft = draft}
+        onSend={sendThreadReply}
+        onRetry={() => activeThreadRoot && openThread(activeThreadRoot)}
+        onToggleReaction={handleToggleReaction}
+        onForward={handleForwardMessage}
+        onDeleteMessage={handleDeleteMessage}
+        onOpenThread={openThread}
+      />
+    {/if}
 
     {#if forwardingMessage}
   <ForwardRoomPicker

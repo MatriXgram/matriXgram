@@ -188,6 +188,7 @@ pub fn run() {
             commands::chat::matrix_get_reply_event,
             commands::chat::matrix_get_newer_messages,
             commands::chat::matrix_get_chat_messages,
+            commands::chat::matrix_get_thread_messages,
             commands::chat::matrix_get_room_members,
             commands::chat::matrix_stream_chat_messages,
             commands::chat::matrix_get_emoji_packs,

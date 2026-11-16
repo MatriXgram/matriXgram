@@ -65,7 +65,7 @@ pub async fn collect_and_store_chats(
         // room's latest event is the ciphertext, so only the decrypted cache
         // holds a readable preview.
         if chat.last_message_preview.is_none() {
-            if let Ok(Some((body, timestamp, sender_label, sender_id))) = app_db
+            if let Ok(Some((body, formatted_body, timestamp, sender_label, sender_id))) = app_db
                 .load_latest_cached_message(chat.room_id.as_str())
                 .await
             {
@@ -74,7 +74,13 @@ pub async fn collect_and_store_chats(
                 } else {
                     sender_label.as_str()
                 };
-                chat.last_message_preview = Some(format!("{sender}: {}", preview_text(&body)));
+                let preview_body = formatted_body
+                    .as_deref()
+                    .map(protocol::sanitize::formatted_body_to_plain_text)
+                    .filter(|text| !text.is_empty())
+                    .unwrap_or(body);
+                chat.last_message_preview =
+                    Some(format!("{sender}: {}", preview_text(&preview_body)));
                 if chat.last_message_ts.is_none() {
                     chat.last_message_ts = timestamp;
                 }

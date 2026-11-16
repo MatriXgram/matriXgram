@@ -85,6 +85,8 @@ mod tests {
             is_deleted: false,
             thread_root_id: None,
             thread_reply_count: 0,
+            thread_participants: Vec::new(),
+            is_falling_back: false,
             mentions_me: false,
             is_sticker: false,
             is_voice: false,

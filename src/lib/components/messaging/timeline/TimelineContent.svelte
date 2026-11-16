@@ -9,6 +9,7 @@
   import { createTimelineGrouper } from "./timelineGroups";
   import type {
     ReplyToMessageHandler,
+    OpenThreadHandler,
     RetryMessageHandler,
     TimelineMessage,
     ToggleReactionHandler,
@@ -31,6 +32,7 @@
     onRemoveFailedMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
+    onOpenThread?: OpenThreadHandler;
     onForward?: (message: TimelineMessage) => void;
     onDeleteMessage?: (message: TimelineMessage) => void;
     onTimelineElementChange?: (element: HTMLElement | null) => void;
@@ -58,6 +60,7 @@
     onRemoveFailedMessage,
     onToggleReaction,
     onReplyToMessage,
+    onOpenThread,
     onForward,
     onDeleteMessage,
     onTimelineElementChange,
@@ -595,6 +598,7 @@
                   {pickerCustomEmoji}
                   onToggleReaction={onToggleReaction}
                   onReplyToMessage={onReplyToMessage}
+                  onOpenThread={onOpenThread}
                   onForward={onForward}
                   onDeleteMessage={onDeleteMessage}
                   isPinned={Boolean(item.message.eventId && pinnedEventIds.includes(item.message.eventId))}

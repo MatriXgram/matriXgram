@@ -15,3 +15,5 @@ export type ToggleReactionHandler = (message: TimelineMessage, key: string) => v
 export type JumpToMessageHandler = (eventId: string) => void;
 
 export type ReplyToMessageHandler = (message: TimelineMessage) => void;
+
+export type OpenThreadHandler = (message: TimelineMessage) => void;

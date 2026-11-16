@@ -27,6 +27,8 @@ pub struct ParsedTimelineMessage {
     /// `m.relates_to.is_falling_back`: a reply that should still show in the
     /// main timeline even though it also belongs to a thread.
     pub is_falling_back: bool,
+    /// Number of thread replies advertised by the bundled aggregation summary.
+    pub thread_reply_count: u32,
     /// `m.mentions.user_ids`: the users this message calls out.
     pub mention_user_ids: Vec<String>,
     /// The event was redacted: its content is empty and the body is gone.
@@ -149,6 +151,11 @@ pub fn parse_timeline_message(
             .and_then(|value| value.get("is_falling_back"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let thread_reply_count = event
+            .pointer("/unsigned/m.relations/m.thread/count")
+            .and_then(Value::as_u64)
+            .unwrap_or_default()
+            .min(u64::from(u32::MAX)) as u32;
 
         // An edit carries the new text in `m.new_content`; the outer content
         // only holds the fallback body. Rendering the new text is what makes
@@ -246,6 +253,7 @@ pub fn parse_timeline_message(
             relates_to_rel_type,
             relates_to_event_id,
             is_falling_back,
+            thread_reply_count,
             mention_user_ids,
             is_redacted,
             is_sticker,
@@ -271,6 +279,7 @@ pub fn parse_timeline_message(
             relates_to_rel_type: None,
             relates_to_event_id: None,
             is_falling_back: false,
+            thread_reply_count: 0,
             mention_user_ids: Vec::new(),
             is_redacted: false,
             is_sticker: false,
@@ -583,6 +592,54 @@ mod tests {
             parsed.in_reply_to_event_id,
             Some("$target-event".to_owned())
         );
+    }
+
+    #[test]
+    fn parses_thread_root_and_fallback_metadata() {
+        let root = json!({
+            "type": "m.room.message",
+            "event_id": "$root",
+            "sender": "@alice:example.org",
+            "unsigned": { "m.relations": { "m.thread": { "count": 4 } } },
+            "content": { "msgtype": "m.text", "body": "Topic" }
+        });
+        let reply = json!({
+            "type": "m.room.message",
+            "event_id": "$reply",
+            "sender": "@bob:example.org",
+            "content": {
+                "msgtype": "m.text",
+                "body": "A thread reply",
+                "m.relates_to": {
+                    "rel_type": "m.thread",
+                    "event_id": "$root",
+                    "m.in_reply_to": { "event_id": "$root" },
+                    "is_falling_back": false
+                }
+            }
+        });
+
+        let parsed_root = parse_timeline_message(
+            &root,
+            MatrixMessageDecryptionStatus::Plaintext,
+            MatrixMessageVerificationStatus::Unknown,
+        )
+        .expect("root should parse");
+        let parsed_reply = parse_timeline_message(
+            &reply,
+            MatrixMessageDecryptionStatus::Plaintext,
+            MatrixMessageVerificationStatus::Unknown,
+        )
+        .expect("thread reply should parse");
+
+        assert_eq!(parsed_root.thread_reply_count, 4);
+        assert_eq!(
+            parsed_reply.relates_to_rel_type.as_deref(),
+            Some("m.thread")
+        );
+        assert_eq!(parsed_reply.relates_to_event_id.as_deref(), Some("$root"));
+        assert_eq!(parsed_reply.in_reply_to_event_id.as_deref(), Some("$root"));
+        assert!(!parsed_reply.is_falling_back);
     }
 
     #[test]

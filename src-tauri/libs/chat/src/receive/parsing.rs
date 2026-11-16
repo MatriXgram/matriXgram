@@ -150,6 +150,8 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 is_deleted: true,
                 thread_root_id: None,
                 thread_reply_count: 0,
+                thread_participants: Vec::new(),
+                is_falling_back: false,
                 mentions_me: false,
                 is_sticker: false,
                 is_voice: false,
@@ -239,6 +241,8 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 is_deleted: false,
                 thread_root_id: None,
                 thread_reply_count: 0,
+                thread_participants: Vec::new(),
+                is_falling_back: false,
                 mentions_me: false,
                 is_sticker: false,
                 is_voice: false,
@@ -363,12 +367,35 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 edited_at: None,
                 is_deleted: parsed.is_redacted,
                 thread_root_id,
-                thread_reply_count: 0,
+                thread_reply_count: parsed.thread_reply_count,
+                thread_participants: Vec::new(),
+                is_falling_back: parsed.is_falling_back,
                 mentions_me,
                 is_sticker,
                 is_voice,
                 audio_duration_ms: parsed.voice_duration_ms,
             });
+        }
+    }
+
+    let mut participants_by_thread: HashMap<String, (u32, Vec<String>)> = HashMap::new();
+    for message in &messages {
+        let Some(root_id) = message.thread_root_id.as_ref() else {
+            continue;
+        };
+        let (count, participants) = participants_by_thread.entry(root_id.clone()).or_default();
+        *count = count.saturating_add(1);
+        if !participants.iter().any(|sender| sender == &message.sender) {
+            participants.push(message.sender.clone());
+        }
+    }
+    for message in &mut messages {
+        let Some(event_id) = message.event_id.as_ref() else {
+            continue;
+        };
+        if let Some((count, participants)) = participants_by_thread.get(event_id) {
+            message.thread_reply_count = message.thread_reply_count.max(*count);
+            message.thread_participants = participants.iter().rev().take(3).cloned().collect();
         }
     }
 

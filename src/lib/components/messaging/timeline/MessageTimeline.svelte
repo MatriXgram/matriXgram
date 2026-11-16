@@ -2,6 +2,7 @@
   import type { PickerCustomEmoji } from "$lib/emoji/picker";
   import type {
     ReplyToMessageHandler,
+    OpenThreadHandler,
     RetryMessageHandler,
     TimelineMessage,
     ToggleReactionHandler,
@@ -50,6 +51,7 @@
     onRemoveFailedMessage?: RetryMessageHandler;
     onToggleReaction?: ToggleReactionHandler;
     onReplyToMessage?: ReplyToMessageHandler;
+    onOpenThread?: OpenThreadHandler;
     onForwardMessage?: (message: TimelineMessage) => void;
     onDeleteMessage?: (message: TimelineMessage) => void;
     onLoadJumpContext?: (eventId: string) => Promise<boolean>;
@@ -82,6 +84,7 @@
     onRemoveFailedMessage,
     onToggleReaction,
     onReplyToMessage,
+    onOpenThread,
     onForwardMessage,
     onDeleteMessage,
     onLoadJumpContext,
@@ -126,6 +129,7 @@
       {onRemoveFailedMessage}
       {onToggleReaction}
       {onReplyToMessage}
+       onOpenThread={isDirect ? undefined : onOpenThread}
       onForward={onForwardMessage}
       {onDeleteMessage}
       {onTimelineElementChange}

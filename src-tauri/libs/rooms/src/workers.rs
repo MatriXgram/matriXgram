@@ -66,7 +66,14 @@ async fn last_message_preview(
         parsed.sender.clone()
     };
 
-    Some(format!("{sender_name}: {}", parsed.body))
+    let preview_body = parsed
+        .formatted_body
+        .as_deref()
+        .map(protocol::sanitize::formatted_body_to_plain_text)
+        .filter(|body| !body.is_empty())
+        .unwrap_or(parsed.body);
+
+    Some(format!("{sender_name}: {preview_body}"))
 }
 
 pub async fn collect_chat_summaries(client: &matrix_sdk::Client) -> Vec<MatrixChatSummary> {

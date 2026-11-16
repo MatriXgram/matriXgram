@@ -55,6 +55,8 @@ pub async fn send_chat_message(
     body: &str,
     picker_custom_emoji: &[MatrixPickerCustomEmoji],
     in_reply_to_event_id: Option<&str>,
+    thread_root_event_id: Option<&str>,
+    thread_fallback: bool,
     formatted_body_override: Option<&str>,
     mentioned_user_ids: &[String],
 ) -> Result<MatrixSendChatMessageResponse, String> {
@@ -64,6 +66,8 @@ pub async fn send_chat_message(
         body,
         picker_custom_emoji,
         in_reply_to_event_id,
+        thread_root_event_id,
+        thread_fallback,
         formatted_body_override,
         mentioned_user_ids,
     )

@@ -102,6 +102,12 @@ pub struct MatrixChatMessage {
     /// Number of replies in the thread this message starts.
     #[serde(default)]
     pub thread_reply_count: u32,
+    /// Recent senders in the thread, for compact avatar stacks in the timeline.
+    #[serde(default)]
+    pub thread_participants: Vec<String>,
+    /// A thread reply that is explicitly also shown in the main timeline.
+    #[serde(default)]
+    pub is_falling_back: bool,
     /// Whether the message mentions the local user (`m.mentions`).
     #[serde(default)]
     pub mentions_me: bool,
@@ -138,6 +144,13 @@ pub struct MatrixGetChatMessagesRequest {
     pub limit: Option<u32>,
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixGetThreadMessagesRequest {
+    pub room_id: String,
+    pub thread_root_event_id: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatrixGetRoomMembersRequest {
@@ -167,6 +180,12 @@ pub struct MatrixSendChatMessageRequest {
     pub room_id: String,
     pub body: String,
     pub in_reply_to_event_id: Option<String>,
+    /// When set, send as a reply in this Matrix thread instead of the main timeline.
+    #[serde(default)]
+    pub thread_root_event_id: Option<String>,
+    /// Whether the thread reply should also appear in the room timeline.
+    #[serde(default)]
+    pub thread_fallback: bool,
     /// Pre-rendered HTML for the message.
     ///
     /// Forwarding a message keeps its formatting by sending the original

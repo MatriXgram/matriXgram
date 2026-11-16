@@ -611,9 +611,13 @@ impl AppDb {
                             image_width,
                             image_height,
                             is_deleted,
+                            thread_root_id,
+                            thread_reply_count,
+                            thread_participants,
+                            is_falling_back,
                             updated_at
                         )
-                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, unixepoch())
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, unixepoch())
                         ",
                     )
                     .map_err(|error| format!("Failed to prepare message cache insert: {error}"))?;
@@ -645,6 +649,12 @@ impl AppDb {
                             message.image_width.map(|value| value as i64),
                             message.image_height.map(|value| value as i64),
                             if message.is_deleted { 1_i64 } else { 0_i64 },
+                            message.thread_root_id.as_deref(),
+                            i64::from(message.thread_reply_count),
+                            serde_json::to_string(&message.thread_participants).map_err(|error| {
+                                format!("Failed to encode cached thread participants: {error}")
+                            })?,
+                            if message.is_falling_back { 1_i64 } else { 0_i64 },
                         ])
                         .map_err(|error| format!("Failed to insert message cache row: {error}"))?;
                 }
@@ -658,7 +668,7 @@ impl AppDb {
         .await
     }
 
-    /// Body, timestamp, and sender label of the newest cached message of a room.
+    /// Body, formatted body, timestamp, and sender label of the newest cached message of a room.
     ///
     /// The chat list shows this as the preview line. It comes from the local
     /// cache rather than the server, so it is only known for rooms whose
@@ -666,13 +676,13 @@ impl AppDb {
     pub async fn load_latest_cached_message(
         &self,
         room_id: &str,
-    ) -> Result<Option<(String, Option<u64>, String, String)>, String> {
+    ) -> Result<Option<(String, Option<String>, Option<u64>, String, String)>, String> {
         let room_id = room_id.to_owned();
         self.run_blocking(move |connection| {
             connection
                 .query_row(
                     "
-                    SELECT body, timestamp, sender_display_name, sender
+                    SELECT body, formatted_body, timestamp, sender_display_name, sender
                     FROM message_cache
                     WHERE room_id = ?1
                     ORDER BY sequence DESC
@@ -681,11 +691,12 @@ impl AppDb {
                     [&room_id],
                     |row| {
                         let body = row.get::<_, String>(0)?;
+                        let formatted_body = row.get::<_, Option<String>>(1)?;
                         let timestamp = row
-                            .get::<_, Option<i64>>(1)?
+                            .get::<_, Option<i64>>(2)?
                             .map(|value| value.max(0) as u64);
-                        let display_name = row.get::<_, Option<String>>(2)?;
-                        let sender = row.get::<_, String>(3)?;
+                        let display_name = row.get::<_, Option<String>>(3)?;
+                        let sender = row.get::<_, String>(4)?;
                         let sender_label = display_name
                             .filter(|name| !name.trim().is_empty())
                             .unwrap_or_else(|| {
@@ -696,7 +707,7 @@ impl AppDb {
                                     .trim_start_matches('@')
                                     .to_owned()
                             });
-                        Ok((body, timestamp, sender_label, sender))
+                        Ok((body, formatted_body, timestamp, sender_label, sender))
                     },
                 )
                 .optional()
@@ -727,7 +738,7 @@ impl AppDb {
             let mut statement = connection
                 .prepare(
                     "
-                    SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, thumbnail_url, reactions, custom_emojis, encrypted, decryption_status, verification_status, sender_display_name, image_width, image_height, is_deleted
+                    SELECT event_id, in_reply_to_event_id, sender, timestamp, body, formatted_body, message_type, image_url, thumbnail_url, reactions, custom_emojis, encrypted, decryption_status, verification_status, sender_display_name, image_width, image_height, is_deleted, thread_root_id, thread_reply_count, thread_participants, is_falling_back
                     FROM message_cache
                     WHERE room_id = ?1
                     ORDER BY sequence ASC
@@ -910,8 +921,24 @@ fn decode_cached_message(row: &rusqlite::Row<'_>) -> Result<MatrixChatMessage, S
             .get::<_, i64>(17)
             .map_err(|error| format!("Failed to decode cached redaction flag: {error}"))?
             != 0,
-        thread_root_id: None,
-        thread_reply_count: 0,
+        thread_root_id: row
+            .get::<_, Option<String>>(18)
+            .map_err(|error| format!("Failed to decode cached thread root id: {error}"))?,
+        thread_reply_count: row
+            .get::<_, i64>(19)
+            .map_err(|error| format!("Failed to decode cached thread reply count: {error}"))?
+            .max(0) as u32,
+        thread_participants: serde_json::from_str(
+            row.get::<_, Option<String>>(20)
+                .map_err(|error| format!("Failed to decode cached thread participants: {error}"))?
+                .as_deref()
+                .unwrap_or("[]"),
+        )
+        .map_err(|error| format!("Failed to parse cached thread participants: {error}"))?,
+        is_falling_back: row
+            .get::<_, i64>(21)
+            .map_err(|error| format!("Failed to decode cached thread fallback flag: {error}"))?
+            != 0,
         mentions_me: false,
         is_sticker: false,
         is_voice: false,
@@ -1019,6 +1046,8 @@ mod tests {
             is_deleted: false,
             thread_root_id: None,
             thread_reply_count: 0,
+            thread_participants: Vec::new(),
+            is_falling_back: false,
             mentions_me: false,
             is_sticker: false,
             is_voice: false,

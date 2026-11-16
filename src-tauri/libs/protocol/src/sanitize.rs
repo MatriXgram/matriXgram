@@ -178,6 +178,73 @@ pub fn sanitize_formatted_body(html: &str) -> Option<String> {
     }
 }
 
+/// Turn a previously sanitised Matrix `formatted_body` into compact preview
+/// text. Rich reply fallback is metadata about the quoted message, not the new
+/// message's content, so omit its `<mx-reply>` block. Text inside mention links
+/// is retained, which shows the display name instead of a raw Matrix ID.
+pub fn formatted_body_to_plain_text(html: &str) -> String {
+    let html = strip_matrix_reply_fallback(html);
+    let mut output = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut tag = String::new();
+
+    for character in html.chars() {
+        match character {
+            '<' if !in_tag => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' if in_tag => {
+                in_tag = false;
+                let name = tag
+                    .trim_start_matches('/')
+                    .split_ascii_whitespace()
+                    .next()
+                    .unwrap_or_default()
+                    .trim_end_matches('/');
+                if matches!(
+                    name,
+                    "br" | "p" | "div" | "li" | "blockquote" | "pre" | "hr"
+                ) {
+                    output.push(' ');
+                }
+            }
+            _ if in_tag => tag.push(character),
+            _ => output.push(character),
+        }
+    }
+
+    decode_preview_entities(&output)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn strip_matrix_reply_fallback(html: &str) -> String {
+    let Some(start) = html.find("<mx-reply") else {
+        return html.to_owned();
+    };
+    let Some(relative_end) = html[start..].find("</mx-reply>") else {
+        return html.to_owned();
+    };
+    let end = start + relative_end + "</mx-reply>".len();
+
+    let mut without_fallback = String::with_capacity(html.len() - (end - start));
+    without_fallback.push_str(&html[..start]);
+    without_fallback.push_str(&html[end..]);
+    without_fallback
+}
+
+fn decode_preview_entities(text: &str) -> String {
+    text.replace("&nbsp;", " ")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +257,17 @@ mod tests {
         assert!(sanitized.contains("<strong>world</strong>"));
         assert!(sanitized.contains("<em>others</em>"));
         assert!(sanitized.contains("<li>one</li>"));
+    }
+
+    #[test]
+    fn preview_uses_mention_label_and_omits_reply_fallback() {
+        let html = concat!(
+            "<mx-reply><blockquote><a href=\"https://matrix.to/#/@alice:example.org\">",
+            "@alice:example.org</a> replied</blockquote></mx-reply>",
+            "<p>Hello <a href=\"https://matrix.to/#/@bob:example.org\">Bob</a> &amp; team</p>"
+        );
+
+        assert_eq!(formatted_body_to_plain_text(html), "Hello Bob & team");
     }
 
     #[test]

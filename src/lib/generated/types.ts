@@ -117,6 +117,8 @@ export interface MatrixChatMessage {
   isDeleted: boolean;
   threadRootId?: string | null;
   threadReplyCount: number;
+  threadParticipants: string[];
+  isFallingBack: boolean;
   mentionsMe: boolean;
   isSticker: boolean;
   isVoice: boolean;
@@ -141,6 +143,11 @@ export interface MatrixGetChatMessagesRequest {
   limit?: number | null;
 }
 
+export interface MatrixGetThreadMessagesRequest {
+  roomId: string;
+  threadRootEventId: string;
+}
+
 export interface MatrixGetRoomMembersRequest {
   roomId: string;
 }
@@ -162,6 +169,8 @@ export interface MatrixSendChatMessageRequest {
   roomId: string;
   body: string;
   inReplyToEventId?: string | null;
+  threadRootEventId?: string | null;
+  threadFallback: boolean;
   formattedBody?: string | null;
   mentionedUserIds: string[];
 }

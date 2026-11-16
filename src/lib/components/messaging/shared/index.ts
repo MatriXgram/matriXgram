@@ -4,6 +4,7 @@ export type {
   ToggleReactionHandler,
   JumpToMessageHandler,
   ReplyToMessageHandler,
+  OpenThreadHandler,
 } from "./types";
 
 export {

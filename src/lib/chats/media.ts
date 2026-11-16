@@ -111,6 +111,8 @@ if (vitest) {
         verificationStatus: "unknown",
         isDeleted: false,
         threadReplyCount: 0,
+        threadParticipants: [],
+        isFallingBack: false,
         mentionsMe: false,
         isSticker: false,
         isVoice: false,
