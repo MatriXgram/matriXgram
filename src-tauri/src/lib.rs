@@ -184,6 +184,8 @@ pub fn run() {
             commands::rooms::matrix_trigger_room_update,
             commands::chat::matrix_get_room_read_state,
             commands::chat::matrix_mark_room_read,
+            commands::chat::matrix_track_attention_event,
+            commands::chat::matrix_mark_attention_read,
             commands::chat::matrix_get_read_context,
             commands::chat::matrix_get_reply_event,
             commands::chat::matrix_get_newer_messages,

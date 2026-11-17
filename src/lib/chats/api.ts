@@ -456,6 +456,12 @@ export function matrixGetRoomReadState(roomId: string) {
 export function matrixMarkRoomRead(request: import("./types").MatrixMarkReadRequest) {
   return invokeMatrixCommand<void>("matrix_mark_room_read", { request });
 }
+export function matrixTrackAttentionEvent(request: import("./types").MatrixAttentionEventRequest) {
+  return invokeMatrixCommand<void>("matrix_track_attention_event", { request });
+}
+export function matrixMarkAttentionRead(request: import("./types").MatrixAttentionEventRequest) {
+  return invokeMatrixCommand<void>("matrix_mark_attention_read", { request });
+}
 const readContextCache = new Map<string, { promise: Promise<import("./types").MatrixReadContextResponse>; expiresAt: number }>();
 export async function matrixGetReadContext(roomId: string, eventId: string) {
   const key = `${roomId}\n${eventId}`;

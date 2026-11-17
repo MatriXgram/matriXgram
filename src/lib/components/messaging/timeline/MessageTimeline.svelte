@@ -28,6 +28,7 @@
     showJumpToLatest?: boolean;
     onJumpToLatest?: () => void;
     onJumpToAttention?: () => void;
+    onAttentionJumped?: (eventId: string) => void;
     roomId: string;
     selectedRoomId: string | null;
     currentUserId: string | null;
@@ -60,7 +61,7 @@
 
   let { 
     messages, 
-    unreadBoundaryId = null, unreadCount = 0, showJumpToLatest = false, showAttentionIndicator = false, attentionCount = 0, attentionJumpRequest = null, onJumpToLatest, onJumpToAttention,
+    unreadBoundaryId = null, unreadCount = 0, showJumpToLatest = false, showAttentionIndicator = false, attentionCount = 0, attentionJumpRequest = null, onJumpToLatest, onJumpToAttention, onAttentionJumped,
     reactionJumpRequest = null, reactionCount = 0, onJumpToReaction, onReactionJumped,
     roomId, 
     selectedRoomId, 
@@ -135,6 +136,7 @@
       {onTimelineElementChange}
       {onLoadJumpContext}
       {attentionJumpRequest}
+      {onAttentionJumped}
       {reactionJumpRequest}
       {onReactionJumped}
       {loadingMessages}

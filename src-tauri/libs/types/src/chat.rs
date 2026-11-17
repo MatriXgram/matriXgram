@@ -418,6 +418,14 @@ pub struct MatrixRoomReadState {
     pub event_id: Option<String>,
     pub unread_count: u32,
     pub latest_timestamp: Option<u64>,
+    pub unread_attention_event_ids: Vec<String>,
+    pub read_attention_event_ids: Vec<String>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixAttentionEventRequest {
+    pub room_id: String,
+    pub event_id: String,
 }
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

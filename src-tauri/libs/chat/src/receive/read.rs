@@ -47,6 +47,40 @@ struct LocalRead {
 fn key(room: &str) -> Vec<u8> {
     format!("desktop.read-position.{room}").into_bytes()
 }
+fn attention_key(room: &str) -> Vec<u8> {
+    format!("desktop.read-attention.{room}").into_bytes()
+}
+#[derive(Default, Serialize, Deserialize)]
+struct AttentionState {
+    unread_event_ids: Vec<String>,
+    read_event_ids: Vec<String>,
+}
+static ATTENTION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+async fn attention_state(client: &Client, room: &str) -> AttentionState {
+    client
+        .state_store()
+        .get_custom_value(&attention_key(room))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+async fn store_attention_state(
+    client: &Client,
+    room: &str,
+    state: &AttentionState,
+) -> Result<(), String> {
+    client
+        .state_store()
+        .set_custom_value(
+            &attention_key(room),
+            serde_json::to_vec(state).map_err(|error| error.to_string())?,
+        )
+        .await
+        .map_err(|error| error.to_string())
+        .map(|_| ())
+}
 async fn local(client: &Client, room: &str) -> Option<LocalRead> {
     serde_json::from_slice(
         &client
@@ -117,12 +151,59 @@ pub async fn state(client: &Client, room_raw: &str) -> Result<MatrixRoomReadStat
         latest_timestamp,
     )
     .await;
+    let attention = attention_state(client, room_raw).await;
     Ok(MatrixRoomReadState {
         room_id: room_raw.into(),
         event_id,
         unread_count,
         latest_timestamp,
+        unread_attention_event_ids: attention.unread_event_ids,
+        read_attention_event_ids: attention.read_event_ids,
     })
+}
+pub async fn track_attention(
+    client: &Client,
+    room_raw: &str,
+    event_raw: &str,
+) -> Result<(), String> {
+    let _guard = ATTENTION_LOCK.lock().await;
+    let room_id = protocol::parse_room_id(room_raw)?;
+    client.get_room(&room_id).ok_or("Room is not available")?;
+    let event_id: OwnedEventId = event_raw
+        .try_into()
+        .map_err(|error| format!("Invalid attention event: {error}"))?;
+    let event_id = event_id.to_string();
+    let mut state = attention_state(client, room_raw).await;
+    if !state.read_event_ids.contains(&event_id) && !state.unread_event_ids.contains(&event_id) {
+        state.unread_event_ids.push(event_id);
+        store_attention_state(client, room_raw, &state).await?;
+    }
+    Ok(())
+}
+pub async fn mark_attention_read(
+    client: &Client,
+    room_raw: &str,
+    event_raw: &str,
+) -> Result<(), String> {
+    let _guard = ATTENTION_LOCK.lock().await;
+    let room_id = protocol::parse_room_id(room_raw)?;
+    client.get_room(&room_id).ok_or("Room is not available")?;
+    let event_id: OwnedEventId = event_raw
+        .try_into()
+        .map_err(|error| format!("Invalid attention event: {error}"))?;
+    let event_id = event_id.to_string();
+    let mut state = attention_state(client, room_raw).await;
+    state.unread_event_ids.retain(|id| id != &event_id);
+    if !state.read_event_ids.contains(&event_id) {
+        state.read_event_ids.push(event_id);
+    }
+    // Keep the local tombstone set bounded without affecting pending unread mentions.
+    if state.read_event_ids.len() > 20_000 {
+        state
+            .read_event_ids
+            .drain(..state.read_event_ids.len() - 20_000);
+    }
+    store_attention_state(client, room_raw, &state).await
 }
 pub async fn mark(client: &Client, request: &MatrixMarkReadRequest) -> Result<(), String> {
     // Serialize receipts so a slow earlier request cannot move the marker back.

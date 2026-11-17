@@ -39,6 +39,7 @@
     onProgrammaticScroll?: () => void;
     onLoadJumpContext?: (eventId: string) => Promise<boolean>;
     attentionJumpRequest?: { eventId: string; nonce: number } | null;
+    onAttentionJumped?: (eventId: string) => void;
     reactionJumpRequest?: { roomId: string; eventId: string; nonce: number } | null;
     onReactionJumped?: (roomId: string, eventId: string) => void;
     loadingMessages?: boolean;
@@ -67,6 +68,7 @@
     onProgrammaticScroll,
     onLoadJumpContext,
     attentionJumpRequest = null,
+    onAttentionJumped,
     reactionJumpRequest = null,
     onReactionJumped,
     loadingMessages = false,
@@ -98,7 +100,7 @@
 
   $effect(() => {
     const request = attentionJumpRequest;
-    if (request) void jumpToMessage(request.eventId);
+    if (request) void jumpToMessage(request.eventId, undefined, () => onAttentionJumped?.(request.eventId));
   });
 
   $effect(() => {
@@ -311,7 +313,7 @@
     }
   }
 
-  async function jumpToMessage(eventId: string, beforeScroll?: () => void) {
+  async function jumpToMessage(eventId: string, beforeScroll?: () => void, afterScroll?: () => void) {
     const timeline = timelineElement;
     if (!timeline) return;
 
@@ -354,6 +356,7 @@
       if (scrollSettleTimeout) clearTimeout(scrollSettleTimeout);
       scrollSettleTimeout = null;
       startHighlight();
+      afterScroll?.();
       highlightTimeout = setTimeout(() => {
         target.classList.remove("reply-target-highlight");
         if (highlightedMessageElement === target) highlightedMessageElement = null;

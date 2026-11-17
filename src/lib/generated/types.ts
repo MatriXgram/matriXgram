@@ -327,6 +327,13 @@ export interface MatrixRoomReadState {
   eventId?: string | null;
   unreadCount: number;
   latestTimestamp?: number | null;
+  unreadAttentionEventIds: string[];
+  readAttentionEventIds: string[];
+}
+
+export interface MatrixAttentionEventRequest {
+  roomId: string;
+  eventId: string;
 }
 
 export interface MatrixReadContextRequest {

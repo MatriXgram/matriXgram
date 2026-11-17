@@ -9,8 +9,10 @@ import {
   matrixGetThreadMessages,
   matrixGetUploadLimit,
   matrixPrefetchPinnedMessageContexts,
+  matrixTrackAttentionEvent,
+  matrixMarkAttentionRead,
 } from "$lib/chats/api";
-  import { firstUnreadIndex, isUnreadMessage } from "$lib/chats/read-position";
+  import { advanceReadWatermark, countVisibleUnreadMessages, firstUnreadIndex, isUnreadMessage } from "$lib/chats/read-position";
 import { formatDraft } from "$lib/components/messaging/composer/draftFormatting";
 import type { ComposerMention } from "$lib/components/messaging/composer";
   import { onMount, tick } from "svelte";
@@ -110,6 +112,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   let initialLoadGeneration = 0;
 
   let unreadBoundaryId = $state<string | null>(null);
+  let attentionBoundaryId = $state<string | null>(null);
   let unreadRemaining = $state(0);
   let unreadTotal = 0;
   let initialLatestTimestamp = 0;
@@ -123,16 +126,29 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   let readingContext = false;
   let jumpRequested = false;
   let highestReadTimestamp = 0;
+  let localReadWatermarkId: string | null = null;
   const consumedUnread = new Set<string>();
   const newUnread = new Set<string>();
+  let attentionUnreadEventIdsByRoom = $state<Record<string, string[]>>({});
+  let attentionReadEventIdsByRoom = $state<Record<string, string[]>>({});
+  let attentionStateReadyRoomId = $state("");
+  let newAttentionEventIds = $state<string[]>([]);
+  const pendingAttentionReadEventIds: string[] = [];
+  function attentionStateKey(roomId: string): string {
+    return `${$shellCurrentUserId ?? ""}\n${roomId}`;
+  }
   const unreadAttentionMessages = $derived.by(() => {
     const userId = $shellCurrentUserId;
-    if (!userId || unreadRemaining <= 0) return [] as TimelineMessage[];
-    const startIndex = unreadBoundaryId ? messages.findIndex((message) => message.eventId === unreadBoundaryId) : -1;
+    const roomId = $shellSelectedRoomId;
+    if (!userId || !roomId) return [] as TimelineMessage[];
+    const key = attentionStateKey(roomId);
+    const unreadAttentionIds = new Set(attentionUnreadEventIdsByRoom[key] ?? []);
+    const readAttentionIds = new Set(attentionReadEventIdsByRoom[key] ?? []);
+    const startIndex = attentionBoundaryId ? messages.findIndex((message) => message.eventId === attentionBoundaryId) : -1;
     const unreadMessages = messages.filter((message, index) => {
       if (message.sender === userId || !message.eventId) return false;
-      if (consumedUnread.has(message.eventId)) return false;
-      return newUnread.has(message.eventId) || (startIndex >= 0 && index >= startIndex);
+      if (readAttentionIds.has(message.eventId)) return false;
+      return unreadAttentionIds.has(message.eventId) || newAttentionEventIds.includes(message.eventId) || (startIndex >= 0 && index >= startIndex);
     });
     return unreadMessages.filter((message) => {
       if (message.mentionsMe) return true;
@@ -147,7 +163,17 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       return target?.sender === userId || replyFallback(message).sender === userId;
     });
   });
-  const hasUnreadAttention = $derived(unreadAttentionMessages.length > 0);
+  const unreadAttentionEventIds = $derived.by(() => {
+    const roomId = $shellSelectedRoomId;
+    if (!roomId) return [] as string[];
+    const key = attentionStateKey(roomId);
+    const readIds = new Set(attentionReadEventIdsByRoom[key] ?? []);
+    return [...new Set([
+      ...(attentionUnreadEventIdsByRoom[key] ?? []).filter((eventId) => !readIds.has(eventId)),
+      ...unreadAttentionMessages.flatMap((message) => message.eventId ? [message.eventId] : []),
+    ])];
+  });
+  const hasUnreadAttention = $derived(unreadAttentionEventIds.length > 0);
   let attentionJumpRequest = $state<{ eventId: string; nonce: number } | null>(null);
   let attentionJumpNonce = 0;
   let reactionJumpRequest = $state<{ roomId: string; eventId: string; nonce: number } | null>(null);
@@ -155,8 +181,10 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   const unreadReactionTargets = $derived([...new Set($reactionNotices
     .filter((notice) => notice.roomId === $shellSelectedRoomId)
     .map((notice) => notice.targetEventId))]);
-  let readTimer: ReturnType<typeof setTimeout>;
+  let readVisibleFrame: number | null = null;
+  let readApiTimer: ReturnType<typeof setTimeout> | undefined;
   let readRequestInFlight = false;
+  const pendingReadReceipts = new Map<string, Parameters<typeof matrixMarkRoomRead>[0]>();
 
   const seenEventIds = new Set<string>();
   const mainTimelineMessages = $derived.by(() => {
@@ -281,7 +309,15 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     return () => {
       disposed = true;
       initialLoadGeneration++;
-      clearTimeout(readTimer);
+      if (readVisibleFrame !== null) {
+        cancelAnimationFrame(readVisibleFrame);
+        readVisibleFrame = null;
+      }
+      if (readApiTimer) {
+        clearTimeout(readApiTimer);
+        readApiTimer = undefined;
+      }
+      void flushPendingReadReceipts();
       clearTimeout(viewportAnchorSaveTimer);
       unlisten();
       unlistenTranscode();
@@ -308,7 +344,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     if (!roomUpdatesReady) return;
 
     if (!selectedRoomId) {
-      if (previousSelectedRoomId) rememberRoomViewport(previousSelectedRoomId);
+      if (previousSelectedRoomId) saveRoomViewportBeforeLeaving(previousSelectedRoomId);
       previousSelectedRoomId = "";
       loadingMessages = false;
       resetRoomState();
@@ -319,7 +355,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       return;
     }
 
-    if (previousSelectedRoomId) rememberRoomViewport(previousSelectedRoomId);
+    if (previousSelectedRoomId) saveRoomViewportBeforeLeaving(previousSelectedRoomId);
     previousSelectedRoomId = selectedRoomId;
     resetRoomState();
     pendingRoomViewportAnchor = selectedRoomId ? readRoomViewportAnchor(selectedRoomId) : null;
@@ -328,7 +364,9 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   });
 
   function roomViewportStorageKey(roomId: string): string {
-    return `matrixgram:timeline-anchor:${$shellCurrentUserId}:${roomId}`;
+    // Version the key so anchors saved by the earlier mention-jump behavior
+    // are not restored after switching to explicit per-room attention state.
+    return `matrixgram:timeline-anchor:v3:${$shellCurrentUserId}:${roomId}`;
   }
 
   function readRoomViewportAnchor(roomId: string): RoomViewportAnchor | null {
@@ -364,6 +402,11 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     }
   }
 
+  function saveRoomViewportBeforeLeaving(roomId: string) {
+    clearTimeout(viewportAnchorSaveTimer);
+    rememberRoomViewport(roomId);
+  }
+
   function distanceToBottom(element: HTMLElement): number {
     return Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
   }
@@ -381,11 +424,15 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     const scrollTop = timelineElement.scrollTop;
     const scrollingUp = scrollTop < lastScrollTop;
     lastScrollTop = scrollTop;
+    const atTimelineEnd = distanceToBottom(timelineElement) < 10;
     isScrolledToBottom = distanceToBottom(timelineElement) <= NEAR_BOTTOM_PX;
     if (selectedRoomId) {
       clearTimeout(viewportAnchorSaveTimer);
       viewportAnchorSaveTimer = setTimeout(() => rememberRoomViewport(selectedRoomId), 250);
     }
+
+    // System rows can extend below the final ordinary message bubble.
+    if (selectedRoomId && atTimelineEnd) scheduleReadVisible();
 
     if (!selectedRoomId || performance.now() < programmaticScrollUntil) {
       return;
@@ -1674,14 +1721,27 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
   function resetRoomState() {
     initialLoadGeneration++;
-    clearTimeout(readTimer);
+    if (readVisibleFrame !== null) {
+      cancelAnimationFrame(readVisibleFrame);
+      readVisibleFrame = null;
+    }
+    if (readApiTimer) {
+      clearTimeout(readApiTimer);
+      readApiTimer = undefined;
+    }
+    // Flush the outgoing room's final watermark before its local state resets.
+    void flushPendingReadReceipts();
     unreadBoundaryId = null; unreadRemaining = 0; unreadTotal = 0;
+    attentionBoundaryId = null;
     readPositionError = "";
     readMarkerId = null; initialLatestTimestamp = 0;
     consumedUnread.clear(); newUnread.clear();
+    attentionStateReadyRoomId = "";
+    newAttentionEventIds = [];
+    pendingAttentionReadEventIds.length = 0;
     readPositionReady = false; readStateConfirmed = false; initialPositionPending = true;
     positioningInitial = false; nextTo = null; loadingNewer = false;
-    readingContext = false; jumpRequested = false; highestReadTimestamp = 0;
+    readingContext = false; jumpRequested = false; highestReadTimestamp = 0; localReadWatermarkId = null;
     lastScrollTop = 0;
     restoringTimelinePosition = false;
     isScrolledToBottom = true;
@@ -1726,6 +1786,22 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     // read until the last-read context has actually been resolved.
     void (async () => {
       if (jumpToEnd) {
+        try {
+          const read = await matrixGetRoomReadState(roomId);
+          if ($shellSelectedRoomId !== roomId || initialLoadGeneration !== generation) return;
+          const key = attentionStateKey(roomId);
+          attentionUnreadEventIdsByRoom = {
+            ...attentionUnreadEventIdsByRoom,
+            [key]: read.unreadAttentionEventIds ?? [],
+          };
+          attentionReadEventIdsByRoom = {
+            ...attentionReadEventIdsByRoom,
+            [key]: read.readAttentionEventIds ?? [],
+          };
+          attentionStateReadyRoomId = roomId;
+        } catch {
+          // Unread mention tracking is best-effort while jumping to the latest message.
+        }
         readStateConfirmed = true;
         readPositionReady = true;
         return;
@@ -1744,10 +1820,21 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         return;
       }
       if ($shellSelectedRoomId !== roomId || initialLoadGeneration !== generation) return;
+      const attentionKey = attentionStateKey(roomId);
+      attentionUnreadEventIdsByRoom = {
+        ...attentionUnreadEventIdsByRoom,
+        [attentionKey]: read.unreadAttentionEventIds ?? [],
+      };
+      attentionReadEventIdsByRoom = {
+        ...attentionReadEventIdsByRoom,
+        [attentionKey]: read.readAttentionEventIds ?? [],
+      };
+      attentionStateReadyRoomId = roomId;
       readMarkerId = read.eventId ?? null;
+      localReadWatermarkId = readMarkerId;
       readPositionError = "";
       unreadTotal = read.unreadCount;
-      unreadRemaining = unreadTotal;
+      refreshVisibleUnreadCount(messages);
       initialLatestTimestamp = read.latestTimestamp ?? Date.now();
       if (readMarkerId && unreadTotal > 0 && !pendingRoomViewportAnchor) {
         let context: Awaited<ReturnType<typeof matrixGetReadContext>>;
@@ -1769,11 +1856,12 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
           readPositionError = "Couldn't find the last-read message in this room. Retry to try again.";
           return;
         }
-        if (initialPositionPending) {
-          const latestMessages = messages;
+      if (initialPositionPending) {
+        const latestMessages = messages;
           messages = context.messages;
           seenEventIds.clear();
           for (const message of messages) if (message.eventId) seenEventIds.add(message.eventId);
+          highestReadTimestamp = messages.find((message) => message.eventId === readMarkerId)?.timestamp ?? highestReadTimestamp;
           nextFrom = context.nextFrom ?? null;
           nextTo = context.nextTo ?? null;
           readingContext = Boolean(nextTo);
@@ -1786,6 +1874,8 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       }
       readStateConfirmed = true;
       readPositionReady = true;
+      highestReadTimestamp = messages.find((message) => message.eventId === readMarkerId)?.timestamp ?? highestReadTimestamp;
+      trackNewUnread(messages);
       console.debug(`Read position ready in ${Math.round(performance.now() - startedAt)}ms`);
     })();
 
@@ -1864,9 +1954,30 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   function trackNewUnread(incoming: MatrixChatMessage[]) {
     for (const message of incoming) {
       if (isUnreadMessage(message) && message.eventId && message.sender !== $shellCurrentUserId &&
-          (message.timestamp ?? 0) > initialLatestTimestamp) newUnread.add(message.eventId);
+          (message.timestamp ?? 0) > initialLatestTimestamp) {
+        newUnread.add(message.eventId);
+        if (readStateConfirmed && !newAttentionEventIds.includes(message.eventId)) {
+          newAttentionEventIds = [...newAttentionEventIds, message.eventId];
+        }
+      }
     }
-    unreadRemaining = Math.max(0, unreadTotal + newUnread.size - consumedUnread.size);
+    refreshVisibleUnreadCount(messages);
+  }
+
+  function refreshVisibleUnreadCount(timelineMessages: TimelineMessage[]) {
+    const userId = $shellCurrentUserId;
+    if (!userId) {
+      unreadRemaining = 0;
+      return;
+    }
+    unreadRemaining = countVisibleUnreadMessages(
+      timelineMessages,
+      readMarkerId,
+      unreadTotal,
+      userId,
+      consumedUnread,
+      newUnread,
+    );
   }
 
   async function positionInitialRead() {
@@ -1876,6 +1987,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     try {
       const index = jumpRequested ? -1 : firstUnreadIndex(messages, readMarkerId, unreadTotal, $shellCurrentUserId);
       unreadBoundaryId = index >= 0 ? messages[index].eventId ?? null : null;
+      attentionBoundaryId = index >= 0 ? messages[index].eventId ?? null : null;
       await tick();
       if ($shellSelectedRoomId !== roomId || !timelineElement) return;
       beginProgrammaticScroll();
@@ -1904,61 +2016,171 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   }
 
   function scheduleReadVisible() {
-    clearTimeout(readTimer);
-    readTimer = setTimeout(() => { void markVisibleRead(); }, 220);
+    if (readVisibleFrame !== null) cancelAnimationFrame(readVisibleFrame);
+    readVisibleFrame = requestAnimationFrame(() => {
+      readVisibleFrame = null;
+      void markVisibleRead();
+    });
   }
-  async function markVisibleRead() {
-    const element = timelineElement, roomId = $shellSelectedRoomId;
-    if (!element || !roomId || !readPositionReady || !readStateConfirmed || initialPositionPending || restoringTimelinePosition ||
-        document.hidden || !document.hasFocus() || readRequestInFlight) return;
-    const viewport = element.getBoundingClientRect();
-    const messageByEventId = new Map(messages.filter(message => message.eventId).map(message => [message.eventId!, message]));
-    const visible = Array.from(element.querySelectorAll<HTMLElement>("[data-message-event-id]"))
-      .filter(node => {
-        const message = messageByEventId.get(node.dataset.messageEventId ?? "");
-        if (!message || !isUnreadMessage(message)) return false;
-        const rect = node.getBoundingClientRect();
-        return rect.bottom <= viewport.bottom + 2 && rect.bottom > viewport.top;
-      });
-    const ids = new Set(visible.map(node => node.dataset.messageEventId));
-    let last = -1;
-    for (let i = 0; i < messages.length; i++) if (ids.has(messages[i].eventId ?? "")) last = i;
-    if (last < 0) return;
+
+  function queueReadReceipt(request: Parameters<typeof matrixMarkRoomRead>[0]) {
+    // Keep only the newest watermark per room; Matrix receipts are monotonic.
+    pendingReadReceipts.set(request.roomId, request);
+    clearTimeout(readApiTimer);
+    readApiTimer = setTimeout(() => {
+      readApiTimer = undefined;
+      void flushPendingReadReceipts();
+    }, 450);
+  }
+
+  async function flushPendingReadReceipts() {
+    if (readRequestInFlight || pendingReadReceipts.size === 0) return;
+    const [roomId, request] = pendingReadReceipts.entries().next().value as [
+      string,
+      Parameters<typeof matrixMarkRoomRead>[0],
+    ];
+    pendingReadReceipts.delete(roomId);
+    readRequestInFlight = true;
+    let succeeded = false;
+    try {
+      await matrixMarkRoomRead(request);
+      succeeded = true;
+    } catch (error) {
+      // Keep an unsent retry unless newer local progress has already replaced it.
+      if (!pendingReadReceipts.has(roomId)) pendingReadReceipts.set(roomId, request);
+      console.debug("Read receipt will retry on next scroll or room change", error);
+    } finally {
+      readRequestInFlight = false;
+      flushPendingAttentionRead();
+      if (succeeded && pendingReadReceipts.size > 0) void flushPendingReadReceipts();
+    }
+  }
+
+  async function markReadThrough(last: number, roomId: string, atTimelineEnd = false) {
+    if ($shellSelectedRoomId !== roomId || !readPositionReady || !readStateConfirmed || initialPositionPending ||
+        restoringTimelinePosition || document.hidden || !document.hasFocus()) return;
+    const latestReadableIndex = messages.findLastIndex((item) => Boolean(item.eventId) && isUnreadMessage(item));
+    const cursorIndex = localReadWatermarkId
+      ? messages.findIndex((item) => item.eventId === localReadWatermarkId)
+      : -1;
+    if (atTimelineEnd && !nextTo && latestReadableIndex >= 0) {
+      last = Math.max(last, latestReadableIndex, cursorIndex);
+    }
+    if (last < 0 || last >= messages.length) return;
     const message = messages[last];
-    const markerIndex = readMarkerId ? messages.findIndex(item => item.eventId === readMarkerId) : -1;
-    if (markerIndex >= 0 && last < markerIndex) return;
-    if (!message.eventId || !message.timestamp || message.timestamp < highestReadTimestamp ||
-        (message.timestamp === highestReadTimestamp && !(!nextTo && last === messages.length - 1 && unreadRemaining > 0))) return;
+    if (!message.eventId || !message.timestamp) return;
+    if (cursorIndex >= 0 ? last < cursorIndex : message.timestamp < highestReadTimestamp) return;
+    const nextWatermarkId = advanceReadWatermark(messages, localReadWatermarkId ?? readMarkerId, last);
+    if (!nextWatermarkId) return;
+    const reachedLatest = !nextTo && latestReadableIndex >= 0 && last >= latestReadableIndex;
+    const alreadyAtWatermark = nextWatermarkId === (localReadWatermarkId ?? readMarkerId);
+    if (alreadyAtWatermark && !(reachedLatest && unreadRemaining > 0)) return;
+
     const start = firstUnreadIndex(messages, readMarkerId, unreadTotal, $shellCurrentUserId);
-    if (start >= 0) for (let i = start; i <= last; i++) {
-      const item = messages[i];
-      if (isUnreadMessage(item) && item.eventId && item.sender !== $shellCurrentUserId) consumedUnread.add(item.eventId);
+    if (start >= 0) {
+      for (let i = start; i <= last; i++) {
+        const item = messages[i];
+        if (isUnreadMessage(item) && item.eventId && item.sender !== $shellCurrentUserId) consumedUnread.add(item.eventId);
+      }
+    } else {
+      // New messages received while this room is open may not have been part of
+      // the initial unread window. Consume those explicitly up to this event.
+      for (let i = 0; i <= last; i++) {
+        const item = messages[i];
+        if (isUnreadMessage(item) && item.eventId && newUnread.has(item.eventId)) consumedUnread.add(item.eventId);
+      }
     }
     trackNewUnread(messages);
-    if (!nextTo && last === messages.length - 1) unreadRemaining = 0;
+    localReadWatermarkId = nextWatermarkId;
+    highestReadTimestamp = Math.max(highestReadTimestamp, message.timestamp);
+    if (reachedLatest) unreadRemaining = 0;
     if (unreadRemaining === 0) unreadBoundaryId = null;
     const remaining = unreadRemaining;
     const previousCount = unreadTotal + newUnread.size;
-    const reachedLatest = !nextTo && last === messages.length - 1;
-    readRequestInFlight = true;
-    try {
-      await matrixMarkRoomRead({ roomId, eventId: message.eventId, timestamp: message.timestamp,
-        remaining, previousCount, latestTimestamp: initialLatestTimestamp });
-      if ($shellSelectedRoomId === roomId) {
-        highestReadTimestamp = message.timestamp;
-        if (reachedLatest) {
-          unreadTotal = 0; newUnread.clear(); consumedUnread.clear();
-          initialLatestTimestamp = Math.max(initialLatestTimestamp, message.timestamp);
-          unreadRemaining = 0;
-          unreadBoundaryId = null;
-        }
-        shellChats.update(rooms => rooms.map(room => room.roomId === roomId ? { ...room, unreadCount: remaining } : room));
-      }
-    } catch (error) { console.debug("Read receipt will retry on next scroll", error); }
-    finally {
-      readRequestInFlight = false;
-      if ($shellSelectedRoomId !== roomId || highestReadTimestamp === message.timestamp) scheduleReadVisible();
+    if (reachedLatest) {
+      // Move the baseline too; otherwise clearing the consumed set would make
+      // already-read events after the old receipt look unread again.
+      readMarkerId = localReadWatermarkId;
+      unreadTotal = 0;
+      newUnread.clear();
+      consumedUnread.clear();
+      initialLatestTimestamp = Math.max(initialLatestTimestamp, message.timestamp);
+      unreadRemaining = 0;
+      unreadBoundaryId = null;
     }
+    // Optimistic UI: update the badge before any network request is sent.
+    shellChats.update((rooms) => rooms.map((room) => room.roomId === roomId ? { ...room, unreadCount: remaining } : room));
+    queueReadReceipt({ roomId, eventId: message.eventId, timestamp: message.timestamp,
+      remaining, previousCount, latestTimestamp: initialLatestTimestamp });
+  }
+
+  async function markVisibleRead() {
+    const element = timelineElement, roomId = $shellSelectedRoomId;
+    if (!element || !roomId || document.hidden || !document.hasFocus()) return;
+    // A previous network attempt may have failed while the cursor was already
+    // at this position. Retry it on the next visible scroll/focus scan.
+    if (pendingReadReceipts.has(roomId) && !readApiTimer) void flushPendingReadReceipts();
+    const viewport = element.getBoundingClientRect();
+    const visibleEventIds = new Set(
+      Array.from(element.querySelectorAll<HTMLElement>("[data-message-event-id]"))
+        .filter((node) => {
+          const rect = node.getBoundingClientRect();
+          const visibleHeight = Math.max(0, Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top));
+          return rect.height > 0 && visibleHeight / rect.height >= 0.1;
+        })
+        .map((node) => node.dataset.messageEventId)
+        .filter((eventId): eventId is string => Boolean(eventId)),
+    );
+    for (const message of unreadAttentionMessages) {
+      if (message.eventId && visibleEventIds.has(message.eventId)) markAttentionRead(message.eventId);
+    }
+
+    if (!readPositionReady || !readStateConfirmed || initialPositionPending || restoringTimelinePosition) return;
+    const messageByEventId = new Map(messages.filter(message => message.eventId).map(message => [message.eventId!, message]));
+    const ids = new Set([...visibleEventIds].filter((eventId) => {
+      const message = messageByEventId.get(eventId);
+      return Boolean(message && isUnreadMessage(message));
+    }));
+    let last = -1;
+    for (let i = 0; i < messages.length; i++) if (ids.has(messages[i].eventId ?? "")) last = i;
+    const atTimelineEnd = !nextTo && distanceToBottom(element) < 10;
+    if (atTimelineEnd) {
+      const latestReadableIndex = messages.findLastIndex((item) => Boolean(item.eventId) && isUnreadMessage(item));
+      if (latestReadableIndex >= 0) last = Math.max(last, latestReadableIndex);
+    }
+    await markReadThrough(last, roomId, atTimelineEnd);
+    flushPendingAttentionRead();
+  }
+
+  function markAttentionRead(eventId: string) {
+    const roomId = $shellSelectedRoomId;
+    if (!roomId) return;
+    const key = attentionStateKey(roomId);
+    const pendingEventIds = attentionUnreadEventIdsByRoom[key] ?? [];
+    const readEventIds = attentionReadEventIdsByRoom[key] ?? [];
+    attentionUnreadEventIdsByRoom = {
+      ...attentionUnreadEventIdsByRoom,
+      [key]: pendingEventIds.filter((id) => id !== eventId),
+    };
+    if (!readEventIds.includes(eventId)) {
+      attentionReadEventIdsByRoom = { ...attentionReadEventIdsByRoom, [key]: [...readEventIds, eventId] };
+      void matrixMarkAttentionRead({ roomId, eventId }).catch((error) => {
+        console.debug("Mention read state will retry on next room visit", error);
+      });
+    }
+    if (readRequestInFlight) {
+      if (!pendingAttentionReadEventIds.includes(eventId)) pendingAttentionReadEventIds.push(eventId);
+      return;
+    }
+    if (!timelineElement) return;
+    const index = messages.findIndex((message) => message.eventId === eventId);
+    if (index >= 0) void markReadThrough(index, roomId).finally(flushPendingAttentionRead);
+  }
+
+  function flushPendingAttentionRead() {
+    if (readRequestInFlight || pendingAttentionReadEventIds.length === 0) return;
+    const eventId = pendingAttentionReadEventIds.shift();
+    if (eventId) markAttentionRead(eventId);
   }
 
   async function loadNewer() {
@@ -2035,12 +2257,16 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       void loadMessages(roomId, true);
     } else {
       queuePinTimelineToBottom(roomId, { force: true });
+      // The jump button is an explicit "read through latest" action. Update
+      // locally now; the receipt is still debounced like scroll-driven reads.
+      const latestReadableIndex = messages.findLastIndex((item) => Boolean(item.eventId) && isUnreadMessage(item));
+      void markReadThrough(latestReadableIndex, roomId, true);
       scheduleReadVisible();
     }
   }
 
   function jumpToNextAttention() {
-    if (!timelineElement || unreadAttentionMessages.length === 0) return;
+    if (!timelineElement || unreadAttentionEventIds.length === 0) return;
     const viewport = timelineElement.getBoundingClientRect();
     const visibleNodes = Array.from(timelineElement.querySelectorAll<HTMLElement>("[data-message-event-id]"))
       .filter((node) => {
@@ -2051,10 +2277,12 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     const bottomVisibleIndex = bottomVisibleNode
       ? messages.findIndex((message) => message.eventId === bottomVisibleNode.dataset.messageEventId)
       : -1;
-    const next = unreadAttentionMessages.find((message) =>
+    const nextLoaded = unreadAttentionMessages.find((message) =>
       messages.findIndex((candidate) => candidate.eventId === message.eventId) > bottomVisibleIndex,
     ) ?? unreadAttentionMessages[0];
-    if (next.eventId) attentionJumpRequest = { eventId: next.eventId, nonce: ++attentionJumpNonce };
+    const loadedIds = new Set(unreadAttentionMessages.flatMap((message) => message.eventId ? [message.eventId] : []));
+    const eventId = nextLoaded?.eventId ?? unreadAttentionEventIds.find((id) => !loadedIds.has(id)) ?? unreadAttentionEventIds[0];
+    if (eventId) attentionJumpRequest = { eventId, nonce: ++attentionJumpNonce };
   }
 
   function retryInitialLoad() {
@@ -2088,6 +2316,46 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     if (messages.length && readPositionReady) {
       if (initialPositionPending) void positionInitialRead();
       else { trackNewUnread(messages); scheduleReadVisible(); }
+    }
+  });
+  $effect(() => {
+    const element = timelineElement;
+    const roomId = $shellSelectedRoomId;
+    const observedMessages = messages;
+    const attentionIds = new Set(unreadAttentionEventIds);
+    if (!element || !roomId || attentionStateReadyRoomId !== roomId || attentionIds.size === 0 || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (document.hidden || !document.hasFocus() || $shellSelectedRoomId !== roomId) return;
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const eventId = (entry.target as HTMLElement).dataset.messageEventId;
+        if (eventId && attentionIds.has(eventId)) markAttentionRead(eventId);
+      }
+    }, { root: element, threshold: 0.01 });
+    for (const node of element.querySelectorAll<HTMLElement>("[data-message-event-id]")) observer.observe(node);
+    void observedMessages;
+    return () => observer.disconnect();
+  });
+  $effect(() => {
+    const roomId = $shellSelectedRoomId;
+    const candidateIds = unreadAttentionMessages.flatMap((message) => message.eventId ? [message.eventId] : []);
+    if (!roomId || attentionStateReadyRoomId !== roomId || !readStateConfirmed || candidateIds.length === 0) return;
+
+    const key = attentionStateKey(roomId);
+    const knownUnread = new Set(attentionUnreadEventIdsByRoom[key] ?? []);
+    const knownRead = new Set(attentionReadEventIdsByRoom[key] ?? []);
+    const newIds = candidateIds.filter((eventId) => !knownUnread.has(eventId) && !knownRead.has(eventId));
+    if (newIds.length === 0) return;
+
+    attentionUnreadEventIdsByRoom = {
+      ...attentionUnreadEventIdsByRoom,
+      [key]: [...(attentionUnreadEventIdsByRoom[key] ?? []), ...newIds],
+    };
+    for (const eventId of newIds) {
+      void matrixTrackAttentionEvent({ roomId, eventId }).catch((error) => {
+        console.debug("Mention tracking will retry while this room is open", error);
+      });
     }
   });
 
@@ -2206,7 +2474,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       {unreadBoundaryId}
       unreadCount={unreadRemaining}
       showAttentionIndicator={hasUnreadAttention}
-      attentionCount={unreadAttentionMessages.length}
+      attentionCount={unreadAttentionEventIds.length}
       {attentionJumpRequest}
       {reactionJumpRequest}
       reactionCount={unreadReactionTargets.length}
@@ -2215,6 +2483,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       showJumpToLatest={!initialPositionPending && (!isScrolledToBottom || Boolean(nextTo) || unreadRemaining > 0)}
       onJumpToLatest={jumpToLatest}
       onJumpToAttention={jumpToNextAttention}
+      onAttentionJumped={markAttentionRead}
       currentUserId={$shellCurrentUserId || null}
       pickerCustomEmoji={$shellPickerCustomEmoji}
       roomEncrypted={selectedRoomEncrypted()}

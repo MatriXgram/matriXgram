@@ -8,18 +8,19 @@ use tauri::State;
 use auth::AuthState;
 use storage::AppDb;
 use types::chat::{
-    MatrixCancelMediaTranscodeRequest, MatrixCancelMediaTranscodeResponse, MatrixChatMessage,
-    MatrixChatMessageStreamEvent, MatrixCopyImageToClipboardRequest, MatrixDownloadFileRequest,
-    MatrixDownloadFileResponse, MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse,
-    MatrixGetEmojiPacksResponse, MatrixGetPinnedEventsRequest, MatrixGetPinnedEventsResponse,
-    MatrixGetRoomMembersRequest, MatrixGetThreadMessagesRequest, MatrixGetUploadLimitResponse,
-    MatrixGetUserAvatarRequest, MatrixGetUserAvatarResponse, MatrixRedactMessageRequest,
-    MatrixRedactMessageResponse, MatrixReplyEventRequest, MatrixResolveMediaUrlRequest,
-    MatrixResolveMediaUrlResponse, MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse,
-    MatrixRoomMember, MatrixSendChatMessageRequest, MatrixSendChatMessageResponse,
-    MatrixSendMediaFileRequest, MatrixSendMediaFileResponse, MatrixSetMessagePinnedRequest,
-    MatrixSetMessagePinnedResponse, MatrixStreamChatMessagesRequest,
-    MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest, MatrixToggleReactionResponse,
+    MatrixAttentionEventRequest, MatrixCancelMediaTranscodeRequest,
+    MatrixCancelMediaTranscodeResponse, MatrixChatMessage, MatrixChatMessageStreamEvent,
+    MatrixCopyImageToClipboardRequest, MatrixDownloadFileRequest, MatrixDownloadFileResponse,
+    MatrixGetChatMessagesRequest, MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse,
+    MatrixGetPinnedEventsRequest, MatrixGetPinnedEventsResponse, MatrixGetRoomMembersRequest,
+    MatrixGetThreadMessagesRequest, MatrixGetUploadLimitResponse, MatrixGetUserAvatarRequest,
+    MatrixGetUserAvatarResponse, MatrixRedactMessageRequest, MatrixRedactMessageResponse,
+    MatrixReplyEventRequest, MatrixResolveMediaUrlRequest, MatrixResolveMediaUrlResponse,
+    MatrixResolveVideoUrlRequest, MatrixResolveVideoUrlResponse, MatrixRoomMember,
+    MatrixSendChatMessageRequest, MatrixSendChatMessageResponse, MatrixSendMediaFileRequest,
+    MatrixSendMediaFileResponse, MatrixSetMessagePinnedRequest, MatrixSetMessagePinnedResponse,
+    MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse, MatrixToggleReactionRequest,
+    MatrixToggleReactionResponse,
 };
 use types::{event_paths, Paths, RoomUpdateTriggerState};
 
@@ -701,6 +702,26 @@ pub async fn matrix_mark_room_read(
     chat::receive::read::mark(&client, &request).await?;
     let _ = room_update_trigger_state.enqueue_refresh(None, false);
     Ok(())
+}
+#[tauri::command]
+pub async fn matrix_track_attention_event(
+    request: MatrixAttentionEventRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<(), String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::receive::read::track_attention(&client, &request.room_id, &request.event_id).await
+}
+#[tauri::command]
+pub async fn matrix_mark_attention_read(
+    request: MatrixAttentionEventRequest,
+    auth_state: State<'_, Arc<AuthState>>,
+    paths: State<'_, Paths>,
+    app_db: State<'_, Arc<AppDb>>,
+) -> Result<(), String> {
+    let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
+    chat::receive::read::mark_attention_read(&client, &request.room_id, &request.event_id).await
 }
 #[tauri::command]
 pub async fn matrix_get_read_context(
