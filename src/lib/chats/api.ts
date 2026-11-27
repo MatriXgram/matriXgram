@@ -91,12 +91,61 @@ export async function matrixGetRoomImage(roomId: string): Promise<string | null>
   return normalizeImageUrl(response.imageUrl);
 }
 
-export async function matrixGetUserAvatar(roomId: string, userId: string): Promise<string | null> {
-  const response = await invokeMatrixCommand<MatrixGetUserAvatarResponse>("matrix_get_user_avatar", {
-    request: { roomId, userId },
-  });
+const userAvatarCache = new Map<string, string | null>();
+const userAvatarRequests = new Map<string, Promise<string | null>>();
+const queuedUserAvatarRequests: Array<{
+  key: string;
+  roomId: string;
+  userId: string;
+  resolve: (url: string | null) => void;
+  reject: (error: unknown) => void;
+}> = [];
+const MAX_CONCURRENT_USER_AVATAR_REQUESTS = 5;
+let activeUserAvatarRequests = 0;
 
-  return normalizeImageUrl(response.imageUrl);
+function drainUserAvatarQueue() {
+  while (
+    activeUserAvatarRequests < MAX_CONCURRENT_USER_AVATAR_REQUESTS &&
+    queuedUserAvatarRequests.length
+  ) {
+    const request = queuedUserAvatarRequests.shift()!;
+    activeUserAvatarRequests++;
+    void invokeMatrixCommand<MatrixGetUserAvatarResponse>("matrix_get_user_avatar", {
+      request: { roomId: request.roomId, userId: request.userId },
+    })
+      .then((response) => normalizeImageUrl(response.imageUrl))
+      .then((url) => {
+        userAvatarCache.set(request.key, url);
+        request.resolve(url);
+      })
+      .catch(request.reject)
+      .finally(() => {
+        userAvatarRequests.delete(request.key);
+        activeUserAvatarRequests--;
+        drainUserAvatarQueue();
+      });
+  }
+}
+
+export function matrixGetUserAvatar(roomId: string, userId: string): Promise<string | null> {
+  const key = `${roomId}\u0000${userId}`;
+  if (userAvatarCache.has(key)) return Promise.resolve(userAvatarCache.get(key) ?? null);
+  const pending = userAvatarRequests.get(key);
+  if (pending) return pending;
+
+  const request = new Promise<string | null>((resolve, reject) => {
+    queuedUserAvatarRequests.push({ key, roomId, userId, resolve, reject });
+  });
+  userAvatarRequests.set(key, request);
+  drainUserAvatarQueue();
+  return request;
+}
+
+export function invalidateMatrixUserAvatar(userId: string) {
+  const suffix = `\u0000${userId}`;
+  for (const key of userAvatarCache.keys()) {
+    if (key.endsWith(suffix)) userAvatarCache.delete(key);
+  }
 }
 
 const mediaResolveRequests = new Map<string, Promise<string | null>>();

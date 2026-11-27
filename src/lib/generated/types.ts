@@ -130,6 +130,7 @@ export interface MatrixChatMessageStreamEvent {
   streamId: string;
   loadKind: MatrixMessageLoadKind;
   sequence: number;
+  source?: string | null;
   message?: MatrixChatMessage | null;
   messages?: MatrixChatMessage[] | null;
   nextFrom?: string | null;

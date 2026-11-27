@@ -16,6 +16,7 @@ import {
 import { formatDraft } from "$lib/components/messaging/composer/draftFormatting";
 import type { ComposerMention } from "$lib/components/messaging/composer";
   import { onMount, tick } from "svelte";
+  import { fly } from "svelte/transition";
   import { listen } from "@tauri-apps/api/event";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -96,6 +97,8 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
 
   let messages = $state<TimelineMessage[]>([]);
   let activeThreadRoot = $state<TimelineMessage | null>(null);
+  let messageJumpNonce = 0;
+  let messageJumpRequest = $state<{ eventId: string; nonce: number } | null>(null);
   let threadMessages = $state<TimelineMessage[]>([]);
   let threadDraft = $state("");
   let threadError = $state("");
@@ -110,6 +113,8 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   let roomUpdatesError = $state("");
   let retryRoomUpdates = () => {};
   let initialLoadGeneration = 0;
+  let activeInitialLoadStartedAt = 0;
+  let firstBatchLoggedStreamId = "";
 
   let unreadBoundaryId = $state<string | null>(null);
   let attentionBoundaryId = $state<string | null>(null);
@@ -636,11 +641,18 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         streamMessageCount = payload.sequence + payload.messages.length;
         return;
       }
-      if (readingContext && nextTo && payload.loadKind === "initial") {
+      const isLocalPreview = payload.source === "sqlite" || payload.source === "sync_cache";
+      if (
+        readingContext &&
+        nextTo &&
+        payload.loadKind === "initial" &&
+        !isLocalPreview
+      ) {
         pendingRoomMessages = { roomId: payload.roomId, nextFrom: null, messages: payload.messages };
         return;
       }
       applySelectedRoomMessagesNow({ roomId: payload.roomId, nextFrom: null, messages: payload.messages });
+      logInitialTimelineFirstBatch(payload);
       streamMessageCount = payload.sequence + payload.messages.length;
       return;
     }
@@ -664,6 +676,28 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       // Initial streaming emits oldest->newest so appending keeps timeline ascending.
       messages = [...messages, payload.message];
     }
+    logInitialTimelineFirstBatch(payload);
+  }
+
+  function logInitialTimelineFirstBatch(payload: MatrixChatMessageStreamEvent) {
+    if (
+      payload.loadKind !== "initial" ||
+      !activeInitialLoadStartedAt ||
+      firstBatchLoggedStreamId === payload.streamId
+    ) return;
+
+    firstBatchLoggedStreamId = payload.streamId;
+    const startedAt = activeInitialLoadStartedAt;
+    const source = payload.source ?? "unknown";
+    // Svelte flushes the state update before the next animation frame, so this
+    // records the first rendered frame, not just the Tauri event callback.
+    requestAnimationFrame(() => {
+      console.info("MatrixGram first timeline batch", {
+        roomId: payload.roomId,
+        source,
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
+    });
   }
 
   function applySelectedRoomMessages(payload: MatrixSelectedRoomMessagesEvent) {
@@ -1601,6 +1635,11 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     }
   }
 
+  function jumpFromThread(eventId: string) {
+    closeThread();
+    messageJumpRequest = { eventId, nonce: ++messageJumpNonce };
+  }
+
   function closeThread() {
     threadLoadGeneration++;
     activeThreadRoot = null;
@@ -1779,6 +1818,8 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     streamMessageCount = 0;
     const generation = ++initialLoadGeneration;
     const startedAt = performance.now();
+    activeInitialLoadStartedAt = startedAt;
+    firstBatchLoggedStreamId = "";
     const savedRoomAnchor = jumpToEnd ? null : pendingRoomViewportAnchor;
 
     // Resolve the read marker independently of the message stream so cached
@@ -1892,6 +1933,17 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     }, MESSAGE_LOAD_TIMEOUT_MS);
 
     try {
+      // Start the local-first stream before restoring a saved viewport anchor.
+      // SQLite/sync-cache batches are painted immediately; network batches stay
+      // buffered until the anchor context has been resolved.
+      const initialStreamRequest = matrixStreamChatMessages({
+        roomId,
+        from: null,
+        limit: 50,
+        streamId,
+        loadKind: "initial",
+      });
+
       if (savedRoomAnchor) {
         // Buffer room-sync snapshots while its saved viewport window is loading.
         readingContext = true;
@@ -1915,6 +1967,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
             streamMessageCount = 0;
             clearTimeout(timeoutHandle);
             flushPendingRoomMessages();
+            await initialStreamRequest;
             return;
           }
         } catch {
@@ -1924,13 +1977,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
         nextTo = null;
       }
 
-      await matrixStreamChatMessages({
-        roomId,
-        from: null,
-        limit: 50,
-        streamId,
-        loadKind: "initial",
-      });
+      await initialStreamRequest;
 
       if ($shellSelectedRoomId !== roomId || activeStreamId !== streamId) {
         clearTimeout(timeoutHandle);
@@ -2466,7 +2513,7 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
   </section>
 {:else}
   <div class="relative flex h-full min-w-0 overflow-hidden">
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" class:hidden={Boolean(activeThreadRoot && !selectedRoomIsDirect())}>
+    <div class="thread-main-panel flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" class:thread-covered={Boolean(activeThreadRoot && !selectedRoomIsDirect())}>
     <MessageTimeline
       messages={mainTimelineMessages}
       roomId={$shellSelectedRoomId || ""}
@@ -2476,6 +2523,10 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
       showAttentionIndicator={hasUnreadAttention}
       attentionCount={unreadAttentionEventIds.length}
       {attentionJumpRequest}
+      {messageJumpRequest}
+      onMessageJumped={(eventId) => {
+        if (messageJumpRequest?.eventId === eventId) messageJumpRequest = null;
+      }}
       {reactionJumpRequest}
       reactionCount={unreadReactionTargets.length}
       onJumpToReaction={jumpToNextReaction}
@@ -2531,26 +2582,29 @@ import { replyFallback, stripMxReplyBlock } from "$lib/components/messaging/shar
     </div>
     </div>
     {#if activeThreadRoot && !selectedRoomIsDirect()}
-      <ThreadPanel
-        root={activeThreadRoot}
-        replies={activeThreadReplies}
-        roomId={$shellSelectedRoomId}
-        currentUserId={$shellCurrentUserId || null}
-        pickerCustomEmoji={$shellPickerCustomEmoji}
-        loading={threadLoading}
-        error={threadError}
-        draft={threadDraft}
-        sending={sendingMessage}
-        isSending={sendingMessage || sendingMedia}
-        onClose={closeThread}
-        onDraftChange={(draft) => threadDraft = draft}
-        onSend={sendThreadReply}
-        onRetry={() => activeThreadRoot && openThread(activeThreadRoot)}
-        onToggleReaction={handleToggleReaction}
-        onForward={handleForwardMessage}
-        onDeleteMessage={handleDeleteMessage}
-        onOpenThread={openThread}
-      />
+      <div class="thread-view-overlay" transition:fly={{ x: 64, duration: 220 }}>
+        <ThreadPanel
+          root={activeThreadRoot}
+          replies={activeThreadReplies}
+          roomId={$shellSelectedRoomId}
+          currentUserId={$shellCurrentUserId || null}
+          pickerCustomEmoji={$shellPickerCustomEmoji}
+          loading={threadLoading}
+          error={threadError}
+          draft={threadDraft}
+          sending={sendingMessage}
+          isSending={sendingMessage || sendingMedia}
+          onClose={closeThread}
+          onDraftChange={(draft) => threadDraft = draft}
+          onSend={sendThreadReply}
+          onRetry={() => activeThreadRoot && openThread(activeThreadRoot)}
+          onToggleReaction={handleToggleReaction}
+          onForward={handleForwardMessage}
+          onDeleteMessage={handleDeleteMessage}
+          onOpenThread={openThread}
+          onJumpToMessage={jumpFromThread}
+        />
+      </div>
     {/if}
 
     {#if forwardingMessage}

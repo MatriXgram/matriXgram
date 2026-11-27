@@ -2,13 +2,14 @@
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { getCachedPublicRooms, matrixJoinRoom, matrixSearchPublicRooms, matrixTriggerRoomUpdate } from "$lib/chats/api";
+  import { addPendingRoomJoin, loadPendingRoomJoins, removePendingRoomJoin, savePendingRoomJoins, type PendingRoomJoin } from "$lib/chats/pending-room-joins";
   import { shellChats, shellCurrentUserId } from "$lib/chats/shell";
   import type { MatrixPublicRoom } from "$lib/chats/types";
   import { avatarBackground, initialsForName } from "$lib/avatars";
+  import { page } from "$app/state";
 
   const STORAGE_KEY = "matrixgram.community-directories";
   const LEGACY_STORAGE_KEY = "matrix-telegram.community-directories";
-  const PENDING_JOINS_KEY = "matrixgram.pending-room-joins";
   const defaults = [
     "matrix.org",
     "matrixrooms.info",
@@ -28,7 +29,7 @@
   let directoryTab = $state<"servers" | "pending">("servers");
   let joining = $state("");
   let joined = $state<string[]>([]);
-  let pendingJoins = $state<{ roomId: string; name: string; alias: string; server: string; since: number }[]>([]);
+  let pendingJoins = $state<PendingRoomJoin[]>([]);
   let failedAvatars = $state<string[]>([]);
   let selectedRoom = $state<MatrixPublicRoom | null>(null);
   let linkContextMenu = $state<{ url: string; x: number; y: number } | null>(null);
@@ -74,6 +75,10 @@
     return joined.includes(roomId) || $shellChats.some((chat) => chat.roomId === roomId && chat.joined);
   }
 
+  function isPending(roomId: string) {
+    return pendingJoins.some((room) => room.roomId === roomId);
+  }
+
   function addOwnServer(userId: string) {
     const own = userServer(userId);
     if (own && !directories.some((server) => server.toLowerCase() === own.toLowerCase())) {
@@ -87,10 +92,8 @@
       if (Array.isArray(saved)) directories = [...new Set([...defaults, ...saved.filter((item) => typeof item === "string")])];
       if (!localStorage.getItem(STORAGE_KEY) && localStorage.getItem(LEGACY_STORAGE_KEY)) localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     } catch { /* use built-in directories */ }
-    try {
-      const savedPending = JSON.parse(localStorage.getItem(PENDING_JOINS_KEY) ?? "[]");
-      if (Array.isArray(savedPending)) pendingJoins = savedPending;
-    } catch { /* ignore invalid pending-join cache */ }
+    pendingJoins = loadPendingRoomJoins();
+    if (page.url.searchParams.get("tab") === "pending") directoryTab = "pending";
     addOwnServer($shellCurrentUserId);
     void loadRooms();
   });
@@ -101,7 +104,7 @@
     const stillPending = pendingJoins.filter((room) => !isJoined(room.roomId));
     if (stillPending.length !== pendingJoins.length) {
       pendingJoins = stillPending;
-      localStorage.setItem(PENDING_JOINS_KEY, JSON.stringify(stillPending));
+      savePendingRoomJoins(stillPending);
     }
   });
 
@@ -163,19 +166,27 @@
   async function joinRoom(room: MatrixPublicRoom) {
     joining = room.roomId;
     error = "";
+    pendingJoins = addPendingRoomJoin({
+      roomId: room.roomId,
+      name: room.name || room.canonicalAlias || room.roomId,
+      alias: room.canonicalAlias || room.roomId,
+      server: room.directoryServer,
+      since: Date.now(),
+    });
+    directoryTab = "pending";
     try {
       await matrixJoinRoom(room.canonicalAlias || room.roomId, [room.directoryServer]);
       joined = [...joined, room.roomId];
+      pendingJoins = removePendingRoomJoin(room.roomId);
       await matrixTriggerRoomUpdate({ includeSelectedMessages: false });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       if (message.startsWith("JOIN_PENDING:")) {
-        pendingJoins = [
-          ...pendingJoins.filter((item) => item.roomId !== room.roomId),
-          { roomId: room.roomId, name: room.name || room.canonicalAlias || room.roomId, alias: room.canonicalAlias || room.roomId, server: room.directoryServer, since: Date.now() },
-        ];
-        localStorage.setItem(PENDING_JOINS_KEY, JSON.stringify(pendingJoins));
-      } else error = message;
+        pendingJoins = addPendingRoomJoin({ roomId: room.roomId, name: room.name || room.canonicalAlias || room.roomId, alias: room.canonicalAlias || room.roomId, server: room.directoryServer, since: Date.now() });
+      } else {
+        pendingJoins = removePendingRoomJoin(room.roomId);
+        error = message;
+      }
     }
     finally { joining = ""; }
   }
@@ -225,7 +236,7 @@
                   <p class="truncate text-xs text-muted" title={pending.alias}>{pending.alias}</p>
                   <p class="mt-1 text-xs text-secondary">Waiting for {pending.server}</p>
                 </div>
-                <button type="button" class="cursor-pointer px-1 text-muted hover:text-primary" aria-label={`Remove ${pending.name} from pending list`} title="Dismiss" onclick={() => { pendingJoins = pendingJoins.filter((item) => item.roomId !== pending.roomId); localStorage.setItem(PENDING_JOINS_KEY, JSON.stringify(pendingJoins)); }}>×</button>
+                <button type="button" class="cursor-pointer px-1 text-muted hover:text-primary" aria-label={`Remove ${pending.name} from pending list`} title="Dismiss" onclick={() => { pendingJoins = pendingJoins.filter((item) => item.roomId !== pending.roomId); savePendingRoomJoins(pendingJoins); }}>×</button>
               </div>
             {/each}
             <p class="px-1 py-2 text-xs text-muted">This list updates when your homeserver syncs membership.</p>
@@ -260,7 +271,7 @@
                   <p class="mt-1 line-clamp-3 text-sm text-secondary" title={room.topic || "No description provided."}>{room.topic || "No description provided."}</p>
                   <div class="mt-2 flex items-center justify-between gap-2">
                     <span class="text-xs text-muted">{room.joinedMembers.toLocaleString()} members</span>
-                    <button type="button" class="btn btn-sm" disabled={joining === room.roomId || isJoined(room.roomId)} onclick={(event) => { event.stopPropagation(); void joinRoom(room); }}>{isJoined(room.roomId) ? "Joined" : joining === room.roomId ? "Joining…" : "Join"}</button>
+                    <button type="button" class="btn btn-sm" disabled={joining === room.roomId || isJoined(room.roomId) || isPending(room.roomId)} onclick={(event) => { event.stopPropagation(); void joinRoom(room); }}>{isJoined(room.roomId) ? "Joined" : joining === room.roomId ? "Joining…" : isPending(room.roomId) ? "Pending" : "Join"}</button>
                   </div>
                 </div>
               </li>
@@ -290,7 +301,7 @@
       </div>
       <div class="flex justify-end gap-2 border-t border-hairline p-3">
         <button type="button" class="btn" onclick={() => selectedRoom = null}>Close</button>
-        <button type="button" class="btn btn-primary" disabled={joining === selectedRoom.roomId || isJoined(selectedRoom.roomId)} onclick={() => void joinRoom(selectedRoom!)}>{isJoined(selectedRoom.roomId) ? "Joined" : joining === selectedRoom.roomId ? "Joining…" : "Join room"}</button>
+        <button type="button" class="btn btn-primary" disabled={joining === selectedRoom.roomId || isJoined(selectedRoom.roomId) || isPending(selectedRoom.roomId)} onclick={() => void joinRoom(selectedRoom!)}>{isJoined(selectedRoom.roomId) ? "Joined" : joining === selectedRoom.roomId ? "Joining…" : isPending(selectedRoom.roomId) ? "Pending" : "Join room"}</button>
       </div>
     </section>
   </div>

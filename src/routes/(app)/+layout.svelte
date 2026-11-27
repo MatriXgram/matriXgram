@@ -16,6 +16,7 @@
     matrixSetRootSpaceOrder,
     matrixTriggerRoomUpdate,
     matrixJoinRoom,
+    invalidateMatrixUserAvatar,
   } from "$lib/chats/api";
   import { mergeInitialChatSnapshot } from "$lib/chats/snapshot";
   import { subscribeToRoomUpdates } from "$lib/chats/realtime";
@@ -273,6 +274,7 @@
           // Matrix pushed an avatar change for this user; drop every cached
           // avatar so message headers re-resolve the new image.
           invalidateSenderAvatar(payload.userId);
+          invalidateMatrixUserAvatar(payload.userId);
           if (payload.userId === get(shellCurrentUserId)) {
             void matrixGetProfile().then((profile) => {
               currentUserAvatar = profile.avatarUrl ?? null;

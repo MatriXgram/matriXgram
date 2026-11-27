@@ -1,4 +1,3 @@
-use futures_util::stream::{self, StreamExt};
 use log::{debug, warn};
 
 use crate::helpers::build_messages_options;
@@ -109,8 +108,6 @@ pub(super) async fn fetch_room_messages_impl<M: MediaResolver>(
             }
         }
     }
-
-    hydrate_thread_summaries(client, &room_id, &mut messages).await;
 
     for message in &mut messages {
         if let Some(name) = sender_names
@@ -223,93 +220,4 @@ pub async fn fetch_thread_messages_from_client(
     messages.retain(|message| message.thread_root_id.as_deref() == Some(thread_root_event_id_raw));
     messages.sort_by_key(|message| message.timestamp.unwrap_or_default());
     Ok(messages)
-}
-
-/// Some homeservers do not include bundled `m.thread` counts on `/messages`
-/// responses. Ask `/relations` for roots that have no bundled count so existing
-/// threads remain discoverable in the timeline. Keep this bounded per page and
-/// run the independent lookups concurrently.
-pub(super) async fn hydrate_thread_summaries(
-    client: &matrix_sdk::Client,
-    room_id: &matrix_sdk::ruma::RoomId,
-    messages: &mut [types::chat::MatrixChatMessage],
-) {
-    const MAX_ROOT_LOOKUPS_PER_PAGE: usize = 50;
-
-    let roots: Vec<String> = messages
-        .iter()
-        .filter(|message| {
-            message.thread_root_id.is_none()
-                && message.thread_reply_count == 0
-                && !message.is_deleted
-                && message.message_type.is_some()
-        })
-        .filter_map(|message| message.event_id.clone())
-        .take(MAX_ROOT_LOOKUPS_PER_PAGE)
-        .collect();
-
-    if roots.is_empty() {
-        return;
-    }
-
-    let client = client.clone();
-    let room_id = room_id.to_owned();
-    let summaries = stream::iter(roots.into_iter().map(move |event_id| {
-        let client = client.clone();
-        let room_id = room_id.clone();
-        async move {
-            let summary = fetch_thread_summary(&client, &room_id, &event_id).await;
-            (event_id, summary)
-        }
-    }))
-    .buffer_unordered(12)
-    .collect::<Vec<_>>()
-    .await;
-
-    for (event_id, summary) in summaries {
-        let Some((reply_count, participants)) = summary else {
-            continue;
-        };
-        if let Some(root) = messages
-            .iter_mut()
-            .find(|message| message.event_id.as_deref() == Some(event_id.as_str()))
-        {
-            root.thread_reply_count = root.thread_reply_count.max(reply_count);
-            if root.thread_participants.is_empty() {
-                root.thread_participants = participants;
-            }
-        }
-    }
-}
-
-async fn fetch_thread_summary(
-    client: &matrix_sdk::Client,
-    room_id: &matrix_sdk::ruma::RoomId,
-    root_event_id: &str,
-) -> Option<(u32, Vec<String>)> {
-    use matrix_sdk::ruma::api::client::relations::get_relating_events_with_rel_type::v1;
-    use matrix_sdk::ruma::events::relation::RelationType;
-
-    let root_event_id = parse_event_id(root_event_id).ok()?;
-    let mut request = v1::Request::new(room_id.to_owned(), root_event_id, RelationType::Thread);
-    request.limit = Some(100u32.into());
-    let response = client.send(request).await.ok()?;
-
-    let mut reply_count = 0u32;
-    let mut participants = Vec::new();
-    for raw_event in response.chunk {
-        let Ok(event) = raw_event.deserialize_as::<serde_json::Value>() else {
-            continue;
-        };
-        let sender = event
-            .get("sender")
-            .and_then(serde_json::Value::as_str)
-            .map(ToOwned::to_owned);
-        reply_count = reply_count.saturating_add(1);
-        if let Some(sender) = sender.filter(|sender| !participants.contains(sender)) {
-            participants.push(sender);
-        }
-    }
-
-    (reply_count > 0).then_some((reply_count, participants.into_iter().take(3).collect()))
 }

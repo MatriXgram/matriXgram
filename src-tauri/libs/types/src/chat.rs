@@ -129,6 +129,8 @@ pub struct MatrixChatMessageStreamEvent {
     pub stream_id: String,
     pub load_kind: MatrixMessageLoadKind,
     pub sequence: u32,
+    /// Where this batch came from, used for first-paint diagnostics.
+    pub source: Option<String>,
     pub message: Option<MatrixChatMessage>,
     pub messages: Option<Vec<MatrixChatMessage>>,
     pub next_from: Option<String>,

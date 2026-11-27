@@ -1,8 +1,10 @@
 <script lang="ts">
   import { matrixJoinRoom } from "$lib/chats/api";
-  import { shellSelectedRoomId, shellErrorMessage } from "$lib/chats/shell";
+  import { addPendingRoomJoin } from "$lib/chats/pending-room-joins";
+  import { shellCurrentUserId, shellSelectedRoomId, shellErrorMessage } from "$lib/chats/shell";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
+  import { get } from "svelte/store";
 
   interface Props {
     open: boolean;
@@ -43,6 +45,39 @@
     onClose();
   }
 
+  function pendingJoinDetails(target: string) {
+    let normalized = target.trim();
+    try {
+      if (/^(https?:|matrix:)/i.test(normalized)) {
+        const url = new URL(normalized);
+        const linkedTarget = url.hash
+          ? decodeURIComponent(url.hash.slice(1)).replace(/^\/+/, "")
+          : decodeURIComponent(url.pathname).replace(/^\/+/, "");
+        if (linkedTarget) normalized = linkedTarget;
+      }
+    } catch {
+      // Fall back to the original target for malformed or non-URL input.
+    }
+
+    normalized = normalized
+      .replace(/^(?:roomid|r)\//i, "")
+      .split(/[?&]/, 1)[0]
+      .replace(/^\/+/, "");
+    const matchedTarget = normalized.match(/[#!][^/?#]+/);
+    if (matchedTarget) normalized = matchedTarget[0];
+    if (!normalized.startsWith("#") && !normalized.startsWith("!")) normalized = `#${normalized}`;
+
+    const server = normalized.slice(normalized.lastIndexOf(":") + 1) ||
+      get(shellCurrentUserId).split(":").at(-1) || "Unknown homeserver";
+    return {
+      roomId: normalized,
+      name: normalized,
+      alias: normalized,
+      server,
+      since: Date.now(),
+    };
+  }
+
   async function joinRoom(event: Event) {
     event.preventDefault();
     if (!roomInput.trim() || loading) return;
@@ -73,6 +108,9 @@
       const message = e instanceof Error ? e.message : "Failed to join room";
       if (message.startsWith("JOIN_PENDING:")) {
         joinPending = true;
+        addPendingRoomJoin(pendingJoinDetails(targetIdOrAlias));
+        onClose();
+        await goto("/chats?view=communities&tab=pending");
       } else {
         shellErrorMessage.set(message);
       }

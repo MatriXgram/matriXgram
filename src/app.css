@@ -341,15 +341,40 @@
     bottom: -3px;
     left: var(--reply-highlight-left, 0px);
     width: var(--reply-highlight-width, 100%);
-    background-color: color-mix(in srgb, var(--tg-accent) 20%, var(--tg-panel-alt));
+    background-color: rgba(82, 136, 193, 0.25);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 180ms ease;
   }
 
   .reply-target-highlight::before {
     opacity: 1;
+    animation: message-highlight 1.5s ease-out forwards;
   }
+}
+
+@keyframes message-highlight {
+  0%, 13.333% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.thread-main-panel {
+  position: relative;
+  transition: transform 220ms ease, opacity 220ms ease;
+  will-change: transform, opacity;
+}
+
+.thread-main-panel.thread-covered {
+  transform: translateX(-8%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.thread-view-overlay {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  min-width: 0;
+  background: var(--tg-panel);
 }
 
 /* Shared feedback for message actions and composer formatting. */

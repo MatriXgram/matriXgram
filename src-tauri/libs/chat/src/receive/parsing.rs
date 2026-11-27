@@ -368,7 +368,7 @@ pub(super) async fn parse_message_chunk<M: MediaResolver>(
                 is_deleted: parsed.is_redacted,
                 thread_root_id,
                 thread_reply_count: parsed.thread_reply_count,
-                thread_participants: Vec::new(),
+                thread_participants: parsed.thread_participants,
                 is_falling_back: parsed.is_falling_back,
                 mentions_me,
                 is_sticker,

@@ -32,6 +32,7 @@ fn emit_message_batch(
     sink: &dyn EventSink,
     request: &MatrixStreamChatMessagesRequest,
     sequence: u32,
+    source: &str,
     messages: Vec<MatrixChatMessage>,
 ) -> Result<u32, String> {
     if messages.is_empty() {
@@ -45,6 +46,7 @@ fn emit_message_batch(
             stream_id: request.stream_id.clone(),
             load_kind: request.load_kind,
             sequence,
+            source: Some(source.to_owned()),
             message: None,
             messages: Some(messages),
             next_from: None,
@@ -54,6 +56,67 @@ fn emit_message_batch(
         "chat message batch",
     )?;
     Ok(sequence.saturating_add(count))
+}
+
+/// Paint the persisted timeline without restoring the Matrix client first.
+/// This is deliberately callable by the Tauri adapter before any network or
+/// SDK work, so reopening a room is gated only on the local SQLite read.
+pub async fn emit_cached_initial_room_messages(
+    event_sink: &dyn EventSink,
+    app_db: &Arc<AppDb>,
+    request: &MatrixStreamChatMessagesRequest,
+) -> Result<bool, String> {
+    if !is_cacheable_initial_request(request.from.as_deref(), request.limit)
+        || !matches!(request.load_kind, MatrixMessageLoadKind::Initial)
+    {
+        return Ok(false);
+    }
+
+    let cache_started_at = std::time::Instant::now();
+    let cached = match load_initial_room_messages(
+        app_db,
+        request.room_id.as_str(),
+        request.from.as_deref(),
+        request.limit,
+    )
+    .await
+    {
+        Ok(cached) => cached,
+        Err(error) => {
+            log::warn!("Could not read cached timeline; fetching from server: {error}");
+            None
+        }
+    };
+    log::info!(
+        "SQLite initial timeline lookup for {} completed in {}ms (hit={})",
+        request.room_id,
+        cache_started_at.elapsed().as_millis(),
+        cached.is_some()
+    );
+
+    let Some(cached) = cached else {
+        return Ok(false);
+    };
+
+    let sequence = emit_message_batch(event_sink, request, 0, "sqlite", cached.messages)?;
+    emit_stream_event(
+        event_sink,
+        &MatrixChatMessageStreamEvent {
+            room_id: request.room_id.clone(),
+            stream_id: request.stream_id.clone(),
+            load_kind: request.load_kind,
+            sequence,
+            source: None,
+            message: None,
+            messages: None,
+            next_from: cached.next_from,
+            done: true,
+            error: None,
+        },
+        "cached chat message stream completion",
+    )?;
+
+    Ok(true)
 }
 
 /// Streams initial messages as a batch and older messages individually,
@@ -136,6 +199,7 @@ impl<'a> ChatMessageStreamer<'a> {
                 stream_id: stream_id.to_string(),
                 load_kind,
                 sequence: self.sequence,
+                source: Some("network".to_owned()),
                 message: Some(message),
                 messages: None,
                 next_from: None,
@@ -152,12 +216,14 @@ impl<'a> ChatMessageStreamer<'a> {
     fn emit_batch(
         &mut self,
         request: &MatrixStreamChatMessagesRequest,
+        source: &str,
         messages: Vec<MatrixChatMessage>,
     ) -> Result<(), String> {
         if messages.is_empty() {
             return Ok(());
         }
-        self.sequence = emit_message_batch(self.event_sink(), request, self.sequence, messages)?;
+        self.sequence =
+            emit_message_batch(self.event_sink(), request, self.sequence, source, messages)?;
         Ok(())
     }
 
@@ -175,6 +241,7 @@ impl<'a> ChatMessageStreamer<'a> {
                 stream_id: stream_id.to_string(),
                 load_kind,
                 sequence: self.sequence,
+                source: None,
                 message: None,
                 messages: None,
                 next_from,
@@ -207,35 +274,7 @@ impl<'a> ChatMessageStreamer<'a> {
         &mut self,
         request: &MatrixStreamChatMessagesRequest,
     ) -> Result<bool, String> {
-        if !self.cacheable_initial_request {
-            return Ok(false);
-        }
-
-        let cached = match load_initial_room_messages(
-            self.app_db(),
-            request.room_id.as_str(),
-            request.from.as_deref(),
-            request.limit,
-        )
-        .await
-        {
-            Ok(cached) => cached,
-            Err(error) => {
-                log::warn!("Could not read cached timeline; fetching from server: {error}");
-                None
-            }
-        };
-
-        if let Some(cached) = cached {
-            self.emit_batch(request, cached.messages)?;
-
-            self.emit_completion(
-                request.room_id.as_str(),
-                request.stream_id.as_str(),
-                request.load_kind,
-                cached.next_from,
-            )?;
-
+        if emit_cached_initial_room_messages(self.event_sink(), self.app_db(), request).await? {
             self.enqueue_room_snapshot_refresh(request.room_id.as_str());
             return Ok(true);
         }
@@ -267,12 +306,18 @@ impl<'a> ChatMessageStreamer<'a> {
             let batch_limit = remaining.min(50) as u32;
             let previous_scan_from = self.scan_from.clone();
 
+            let fetch_started_at = std::time::Instant::now();
             let page = fetch_page(
                 request.room_id.clone(),
                 self.scan_from.clone(),
                 Some(batch_limit),
             )
             .await?;
+            log::debug!(
+                "Fetched one /messages page for {} in {}ms",
+                request.room_id,
+                fetch_started_at.elapsed().as_millis()
+            );
 
             self.request_count = self.request_count.saturating_add(1);
             let raw_event_count = page.raw_event_count;
@@ -356,7 +401,7 @@ impl<'a> ChatMessageStreamer<'a> {
         if self.cacheable_initial_request {
             self.cache_messages = messages.clone();
         }
-        self.emit_batch(request, messages)?;
+        self.emit_batch(request, "network", messages)?;
 
         Ok(())
     }
@@ -413,7 +458,7 @@ impl<'a> ChatMessageStreamer<'a> {
             )
             .await
             {
-                self.emit_batch(&request, preview.messages)?;
+                self.emit_batch(&request, "sync_cache", preview.messages)?;
                 // Preview is not the fetched page budget; the network page also
                 // supplies a reliable pagination cursor and enriched media.
                 self.sequence = 0;
@@ -502,8 +547,14 @@ mod batch_tests {
     #[test]
     fn initial_page_arrives_in_one_event_with_order_and_sequence_intact() {
         let sink = Sink::default();
-        let next = emit_message_batch(&sink, &request(), 3, vec![message("$old"), message("$new")])
-            .unwrap();
+        let next = emit_message_batch(
+            &sink,
+            &request(),
+            3,
+            "network",
+            vec![message("$old"), message("$new")],
+        )
+        .unwrap();
         let events = sink.0.lock().unwrap();
         assert_eq!(next, 5);
         assert_eq!(events.len(), 1);
@@ -511,13 +562,17 @@ mod batch_tests {
         assert_eq!(events[0]["messages"][1]["eventId"], "$new");
         assert_eq!(events[0]["streamId"], "s");
         assert_eq!(events[0]["sequence"], 3);
+        assert_eq!(events[0]["source"], "network");
         assert_eq!(events[0]["done"], false);
         assert!(events[0]["messages"][0]["senderDisplayName"].is_null());
     }
     #[test]
     fn empty_batch_does_not_emit_or_advance() {
         let sink = Sink::default();
-        assert_eq!(emit_message_batch(&sink, &request(), 4, vec![]).unwrap(), 4);
+        assert_eq!(
+            emit_message_batch(&sink, &request(), 4, "network", vec![]).unwrap(),
+            4
+        );
         assert!(sink.0.lock().unwrap().is_empty());
     }
 }

@@ -29,6 +29,8 @@ pub struct ParsedTimelineMessage {
     pub is_falling_back: bool,
     /// Number of thread replies advertised by the bundled aggregation summary.
     pub thread_reply_count: u32,
+    /// Sender of the bundled latest thread event, when the summary is present.
+    pub thread_participants: Vec<String>,
     /// `m.mentions.user_ids`: the users this message calls out.
     pub mention_user_ids: Vec<String>,
     /// The event was redacted: its content is empty and the body is gone.
@@ -156,6 +158,16 @@ pub fn parse_timeline_message(
             .and_then(Value::as_u64)
             .unwrap_or_default()
             .min(u64::from(u32::MAX)) as u32;
+        let thread_participants = if thread_reply_count > 0 {
+            event
+                .pointer("/unsigned/m.relations/m.thread/latest_event/sender")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         // An edit carries the new text in `m.new_content`; the outer content
         // only holds the fallback body. Rendering the new text is what makes
@@ -254,6 +266,7 @@ pub fn parse_timeline_message(
             relates_to_event_id,
             is_falling_back,
             thread_reply_count,
+            thread_participants,
             mention_user_ids,
             is_redacted,
             is_sticker,
@@ -280,6 +293,7 @@ pub fn parse_timeline_message(
             relates_to_event_id: None,
             is_falling_back: false,
             thread_reply_count: 0,
+            thread_participants: Vec::new(),
             mention_user_ids: Vec::new(),
             is_redacted: false,
             is_sticker: false,
@@ -600,7 +614,10 @@ mod tests {
             "type": "m.room.message",
             "event_id": "$root",
             "sender": "@alice:example.org",
-            "unsigned": { "m.relations": { "m.thread": { "count": 4 } } },
+            "unsigned": { "m.relations": { "m.thread": {
+                "count": 4,
+                "latest_event": { "sender": "@bob:example.org" }
+            } } },
             "content": { "msgtype": "m.text", "body": "Topic" }
         });
         let reply = json!({
@@ -633,6 +650,7 @@ mod tests {
         .expect("thread reply should parse");
 
         assert_eq!(parsed_root.thread_reply_count, 4);
+        assert_eq!(parsed_root.thread_participants, vec!["@bob:example.org"]);
         assert_eq!(
             parsed_reply.relates_to_rel_type.as_deref(),
             Some("m.thread")

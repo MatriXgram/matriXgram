@@ -208,6 +208,24 @@ pub async fn matrix_stream_chat_messages(
     paths: State<'_, Paths>,
 ) -> Result<MatrixStreamChatMessagesResponse, String> {
     log::info!("matrix_stream_chat_messages requested");
+
+    if matches!(
+        request.load_kind,
+        types::chat::MatrixMessageLoadKind::Initial
+    ) && chat::emit_cached_initial_room_messages(
+        event_sink.inner().as_ref(),
+        app_db.inner(),
+        &request,
+    )
+    .await?
+    {
+        let _ = room_update_trigger_state.enqueue_refresh(Some(request.room_id.clone()), true);
+        return Ok(MatrixStreamChatMessagesResponse {
+            stream_id: request.stream_id,
+            started: true,
+        });
+    }
+
     let client = auth_state.restore_client_and_get(&paths, &app_db).await?;
 
     let app_db = app_db.inner().clone();
@@ -281,6 +299,7 @@ pub async fn matrix_stream_chat_messages(
                 stream_id: terminal_stream_id,
                 load_kind: terminal_load_kind,
                 sequence: 0,
+                source: None,
                 message: None,
                 messages: None,
                 next_from: terminal_next_from,
@@ -366,16 +385,19 @@ pub async fn matrix_send_chat_message(
     // short sync and a retry.
     let room_id = request.room_id.clone();
     let picker_custom_emoji = chat::emoji::load_picker_assets_from_client(&client).await?;
+    let message_options = chat::send::RoomMessageOptions {
+        picker_custom_emoji: &picker_custom_emoji,
+        in_reply_to_event_id: request.in_reply_to_event_id.as_deref(),
+        thread_root_event_id: request.thread_root_event_id.as_deref(),
+        thread_fallback: request.thread_fallback,
+        formatted_body_override: request.formatted_body.as_deref(),
+        mentioned_user_ids: &request.mentioned_user_ids,
+    };
     let response = match chat::send_chat_message(
         &client,
         room_id.as_str(),
         request.body.as_str(),
-        &picker_custom_emoji,
-        request.in_reply_to_event_id.as_deref(),
-        request.thread_root_event_id.as_deref(),
-        request.thread_fallback,
-        request.formatted_body.as_deref(),
-        &request.mentioned_user_ids,
+        message_options,
     )
     .await
     {
@@ -389,12 +411,7 @@ pub async fn matrix_send_chat_message(
                 &client,
                 room_id.as_str(),
                 request.body.as_str(),
-                &picker_custom_emoji,
-                request.in_reply_to_event_id.as_deref(),
-                request.thread_root_event_id.as_deref(),
-                request.thread_fallback,
-                request.formatted_body.as_deref(),
-                &request.mentioned_user_ids,
+                message_options,
             )
             .await
         }

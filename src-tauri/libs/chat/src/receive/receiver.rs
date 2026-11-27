@@ -4,7 +4,7 @@ use storage::AppDb;
 use types::{EventSink, RoomUpdateTriggerState};
 
 use super::super::media::{CachedMediaResolver, DefaultMediaResolver};
-use super::fetch::{fetch_room_messages_impl, hydrate_thread_summaries};
+use super::fetch::fetch_room_messages_impl;
 use super::parsing::ReactionAccumulator;
 use super::stream::ChatMessageStreamer;
 use types::chat::{
@@ -117,7 +117,6 @@ pub async fn cached_room_messages(
     if messages.is_empty() {
         return None;
     }
-    hydrate_thread_summaries(client, &room_id, &mut messages).await;
     Some(MatrixGetChatMessagesResponse {
         room_id: room_id_raw.into(),
         next_from: room.last_prev_batch(),

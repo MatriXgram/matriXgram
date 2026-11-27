@@ -13,13 +13,13 @@ use crate::reactions::toggle_reaction_from_client;
 use crate::receive::fetch_room_messages_from_client;
 use crate::send::{
     build_display_formatted_body_from_custom_emoji, send_media_file_from_client,
-    send_room_message_from_client, MediaTranscodeCancellationState,
+    send_room_message_from_client, MediaTranscodeCancellationState, RoomMessageOptions,
 };
 use types::chat::{
     MatrixGetChatMessagesResponse, MatrixGetEmojiPacksResponse, MatrixGetUserAvatarResponse,
-    MatrixPickerCustomEmoji, MatrixResolveMediaUrlResponse, MatrixResolveVideoUrlResponse,
-    MatrixSendChatMessageResponse, MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest,
-    MatrixStreamChatMessagesResponse, MatrixToggleReactionResponse,
+    MatrixResolveMediaUrlResponse, MatrixResolveVideoUrlResponse, MatrixSendChatMessageResponse,
+    MatrixSendMediaFileResponse, MatrixStreamChatMessagesRequest, MatrixStreamChatMessagesResponse,
+    MatrixToggleReactionResponse,
 };
 use types::EventSink;
 
@@ -53,29 +53,13 @@ pub async fn send_chat_message(
     client: &Client,
     room_id: &str,
     body: &str,
-    picker_custom_emoji: &[MatrixPickerCustomEmoji],
-    in_reply_to_event_id: Option<&str>,
-    thread_root_event_id: Option<&str>,
-    thread_fallback: bool,
-    formatted_body_override: Option<&str>,
-    mentioned_user_ids: &[String],
+    options: RoomMessageOptions<'_>,
 ) -> Result<MatrixSendChatMessageResponse, String> {
-    let event_id = send_room_message_from_client(
-        client,
-        room_id,
-        body,
-        picker_custom_emoji,
-        in_reply_to_event_id,
-        thread_root_event_id,
-        thread_fallback,
-        formatted_body_override,
-        mentioned_user_ids,
-    )
-    .await?;
+    let event_id = send_room_message_from_client(client, room_id, body, options).await?;
 
-    let formatted_body = match formatted_body_override {
+    let formatted_body = match options.formatted_body_override {
         Some(raw) => protocol::sanitize::sanitize_formatted_body(raw),
-        None => build_display_formatted_body_from_custom_emoji(body, picker_custom_emoji),
+        None => build_display_formatted_body_from_custom_emoji(body, options.picker_custom_emoji),
     };
 
     Ok(MatrixSendChatMessageResponse {

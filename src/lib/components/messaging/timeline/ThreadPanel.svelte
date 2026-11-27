@@ -24,21 +24,16 @@
     onForward?: (message: TimelineMessage) => void;
     onDeleteMessage?: (message: TimelineMessage) => void;
     onOpenThread?: (message: TimelineMessage) => void;
+    onJumpToMessage?: (eventId: string) => void;
   }
 
   let {
     root, replies, roomId, currentUserId, pickerCustomEmoji = [], isSending = false, loading, error, draft, sending,
-    onClose, onDraftChange, onSend, onRetry, onToggleReaction, onForward, onDeleteMessage, onOpenThread,
+    onClose, onDraftChange, onSend, onRetry, onToggleReaction, onForward, onDeleteMessage, onOpenThread, onJumpToMessage,
   }: Props = $props();
 
-  let repliesElement = $state<HTMLUListElement | null>(null);
   let replyTarget = $state<TimelineMessage | null>(null);
   const imageMessages = $derived([root, ...replies].filter((message) => message.messageType === "m.image" && message.imageUrl));
-
-  $effect(() => {
-    replies.length;
-    queueMicrotask(() => repliesElement?.scrollTo({ top: repliesElement.scrollHeight, behavior: "smooth" }));
-  });
 
   function sendReply(messageDraft: string, mentions?: ComposerMention[]) {
     onSend(messageDraft, mentions, replyTarget);
@@ -65,7 +60,7 @@
         <button type="button" class="mt-2 font-semibold underline" onclick={onRetry}>Try again</button>
       </div>
     {/if}
-    <ul bind:this={repliesElement} class="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4" aria-live="polite">
+    <ul class="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4" aria-live="polite">
       <MessageItem
         message={root}
         {imageMessages}
@@ -79,6 +74,7 @@
         {onForward}
         {onDeleteMessage}
         onOpenThread={onOpenThread}
+        {onJumpToMessage}
         isSending={isSending || sending}
       />
       <li class="flex items-center gap-3 py-1 text-[11px] text-secondary" aria-label="Discussion started">
@@ -106,6 +102,7 @@
           {onForward}
           {onDeleteMessage}
           onOpenThread={onOpenThread}
+          {onJumpToMessage}
           isSending={isSending || sending}
         />
       {/each}

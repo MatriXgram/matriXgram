@@ -96,6 +96,16 @@ pub struct MediaSendResult {
     pub event_id: String,
 }
 
+#[derive(Clone, Copy)]
+pub struct RoomMessageOptions<'a> {
+    pub picker_custom_emoji: &'a [MatrixPickerCustomEmoji],
+    pub in_reply_to_event_id: Option<&'a str>,
+    pub thread_root_event_id: Option<&'a str>,
+    pub thread_fallback: bool,
+    pub formatted_body_override: Option<&'a str>,
+    pub mentioned_user_ids: &'a [String],
+}
+
 pub fn cancel_media_transcode(
     state: &MediaTranscodeCancellationState,
     room_id: &str,
@@ -115,12 +125,7 @@ pub async fn send_room_message_from_client(
     client: &matrix_sdk::Client,
     room_id_raw: &str,
     body: &str,
-    picker_custom_emoji: &[MatrixPickerCustomEmoji],
-    in_reply_to_event_id_raw: Option<&str>,
-    thread_root_event_id_raw: Option<&str>,
-    thread_fallback: bool,
-    formatted_body_override: Option<&str>,
-    mentioned_user_ids: &[String],
+    options: RoomMessageOptions<'_>,
 ) -> Result<String, String> {
     let trimmed_body = body.trim();
     if trimmed_body.is_empty() {
@@ -133,14 +138,15 @@ pub async fn send_room_message_from_client(
         .get_room(&room_id)
         .ok_or_else(|| String::from("Room is not available in current session"))?;
 
-    let formatted_body = match formatted_body_override {
+    let formatted_body = match options.formatted_body_override {
         // A forwarded message keeps its formatting. The HTML comes from the
         // client, so it is sanitised here, at the same trust boundary as a
         // formatted body that arrives with a sync.
         Some(raw) => protocol::sanitize::sanitize_formatted_body(raw),
-        None => {
-            formatting::build_formatted_body_from_custom_emoji(trimmed_body, picker_custom_emoji)
-        }
+        None => formatting::build_formatted_body_from_custom_emoji(
+            trimmed_body,
+            options.picker_custom_emoji,
+        ),
     };
 
     let mut content = if let Some(formatted_body) = formatted_body.as_deref() {
@@ -149,28 +155,30 @@ pub async fn send_room_message_from_client(
         RoomMessageEventContent::text_plain(trimmed_body)
     };
 
-    if !mentioned_user_ids.is_empty() {
-        let user_ids = mentioned_user_ids
+    if !options.mentioned_user_ids.is_empty() {
+        let user_ids = options
+            .mentioned_user_ids
             .iter()
             .map(|user_id| protocol::parse_user_id(user_id))
             .collect::<Result<Vec<_>, _>>()?;
         content = content.add_mentions(Mentions::with_user_ids(user_ids));
     }
 
-    if let Some(thread_root_event_id_raw) = thread_root_event_id_raw {
+    if let Some(thread_root_event_id_raw) = options.thread_root_event_id {
         use matrix_sdk::ruma::events::relation::Thread;
 
         let thread_root_event_id = parse_event_id(thread_root_event_id_raw)?;
-        let reply_to_event_id = in_reply_to_event_id_raw
+        let reply_to_event_id = options
+            .in_reply_to_event_id
             .map(parse_event_id)
             .transpose()?
             .unwrap_or_else(|| thread_root_event_id.clone());
-        content.relates_to = Some(Relation::Thread(if thread_fallback {
+        content.relates_to = Some(Relation::Thread(if options.thread_fallback {
             Thread::plain(thread_root_event_id, reply_to_event_id)
         } else {
             Thread::reply(thread_root_event_id, reply_to_event_id)
         }));
-    } else if let Some(in_reply_to_event_id_raw) = in_reply_to_event_id_raw {
+    } else if let Some(in_reply_to_event_id_raw) = options.in_reply_to_event_id {
         let in_reply_to_event_id = parse_event_id(in_reply_to_event_id_raw)?;
         content.relates_to = Some(Relation::Reply(
             matrix_sdk::ruma::events::relation::Reply::new(InReplyTo::new(in_reply_to_event_id)),

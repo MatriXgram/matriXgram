@@ -39,6 +39,8 @@
     onProgrammaticScroll?: () => void;
     onLoadJumpContext?: (eventId: string) => Promise<boolean>;
     attentionJumpRequest?: { eventId: string; nonce: number } | null;
+    messageJumpRequest?: { eventId: string; nonce: number } | null;
+    onMessageJumped?: (eventId: string) => void;
     onAttentionJumped?: (eventId: string) => void;
     reactionJumpRequest?: { roomId: string; eventId: string; nonce: number } | null;
     onReactionJumped?: (roomId: string, eventId: string) => void;
@@ -68,6 +70,8 @@
     onProgrammaticScroll,
     onLoadJumpContext,
     attentionJumpRequest = null,
+    messageJumpRequest = null,
+    onMessageJumped,
     onAttentionJumped,
     reactionJumpRequest = null,
     onReactionJumped,
@@ -80,8 +84,8 @@
   let highlightedMessageElement: HTMLElement | null = $state(null);
   let highlightTimeout: ReturnType<typeof setTimeout> | null = $state(null);
   let scrollSettleTimeout: ReturnType<typeof setTimeout> | null = $state(null);
+  let wheelScrollFrame: number | null = null;
   let pendingScrollCleanup: (() => void) | null = null;
-  let ignoreNextGlobalPointerDown = $state(false);
   let pinnedEventIds = $state<string[]>([]);
   let pinnedPreviews = $state<Record<string, { body: string; imageUrl: string | null; timestamp: number | null }>>({});
   let pinnedIndex = $state(0);
@@ -101,6 +105,11 @@
   $effect(() => {
     const request = attentionJumpRequest;
     if (request) void jumpToMessage(request.eventId, undefined, () => onAttentionJumped?.(request.eventId));
+  });
+
+  $effect(() => {
+    const request = messageJumpRequest;
+    if (request) void jumpToMessage(request.eventId, undefined, () => onMessageJumped?.(request.eventId));
   });
 
   $effect(() => {
@@ -235,7 +244,7 @@
       isJumping = true;
       if (jumpUnlockTimer) clearTimeout(jumpUnlockTimer);
       jumpUnlockTimer = null;
-    });
+    }, undefined, true);
     if (isJumping) scheduleJumpUnlock(400);
   }
 
@@ -313,7 +322,12 @@
     }
   }
 
-  async function jumpToMessage(eventId: string, beforeScroll?: () => void, afterScroll?: () => void) {
+  async function jumpToMessage(
+    eventId: string,
+    beforeScroll?: () => void,
+    afterScroll?: () => void,
+    wheelLike = false,
+  ) {
     const timeline = timelineElement;
     if (!timeline) return;
 
@@ -334,14 +348,14 @@
     scrollSettleTimeout = null;
     if (highlightTimeout) clearTimeout(highlightTimeout);
     highlightTimeout = null;
-    if (highlightedMessageElement && highlightedMessageElement !== target) {
+    if (wheelScrollFrame !== null) cancelAnimationFrame(wheelScrollFrame);
+    wheelScrollFrame = null;
+    if (highlightedMessageElement) {
       highlightedMessageElement.classList.remove("reply-target-highlight");
+      highlightedMessageElement = null;
     }
 
-    let highlightStarted = false;
     const startHighlight = () => {
-      if (highlightStarted) return;
-      highlightStarted = true;
       const timelineRect = timeline.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
       target.style.setProperty("--reply-highlight-left", `${timelineRect.left - targetRect.left}px`);
@@ -350,7 +364,10 @@
       highlightedMessageElement = target;
     };
 
+    let scrollFinished = false;
     const finishScroll = () => {
+      if (scrollFinished) return;
+      scrollFinished = true;
       pendingScrollCleanup?.();
       pendingScrollCleanup = null;
       if (scrollSettleTimeout) clearTimeout(scrollSettleTimeout);
@@ -361,36 +378,81 @@
         target.classList.remove("reply-target-highlight");
         if (highlightedMessageElement === target) highlightedMessageElement = null;
         highlightTimeout = null;
-      }, 1200);
+      }, 1500);
     };
 
     let sawScroll = false;
-    const targetIsNearViewport = () => {
-      const targetRect = target.getBoundingClientRect();
-      const viewportRect = timeline.getBoundingClientRect();
-      return targetRect.bottom >= viewportRect.top - 220 && targetRect.top <= viewportRect.bottom + 220;
-    };
     const handleTimelineScroll = () => {
       sawScroll = true;
-      if (targetIsNearViewport()) startHighlight();
       if (scrollSettleTimeout) clearTimeout(scrollSettleTimeout);
       scrollSettleTimeout = setTimeout(finishScroll, 180);
     };
     timeline.addEventListener("scroll", handleTimelineScroll, { passive: true });
     pendingScrollCleanup = () => timeline.removeEventListener("scroll", handleTimelineScroll);
-    if (targetIsNearViewport()) startHighlight();
 
     beforeScroll?.();
     onProgrammaticScroll?.();
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    const getCenteredScrollTop = () => {
+      const timelineRect = timeline.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      return timeline.scrollTop + targetRect.top - timelineRect.top
+        - (timeline.clientHeight - targetRect.height) / 2;
+    };
+    const centerTarget = () => {
+      if (!wheelLike) {
+        timeline.scrollTo({ top: getCenteredScrollTop(), behavior: "smooth" });
+        return;
+      }
+
+      const startTop = timeline.scrollTop;
+      const maxScrollTop = Math.max(0, timeline.scrollHeight - timeline.clientHeight);
+      const targetTop = Math.max(0, Math.min(maxScrollTop, getCenteredScrollTop()));
+      const distance = targetTop - startTop;
+      if (Math.abs(distance) < 1) {
+        finishScroll();
+        return;
+      }
+
+      // Animate in small continuous increments rather than asking the browser
+      // to jump via scrollIntoView. The signed delta follows the target's actual
+      // position, like rolling the mouse wheel toward it.
+      const duration = Math.min(1100, Math.max(360, Math.abs(distance) * 0.55));
+      const startedAt = performance.now();
+      const animateStep = (now: number) => {
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = progress < 0.5
+          ? 4 * progress * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        timeline.scrollTop = startTop + distance * eased;
+        if (progress < 1) {
+          wheelScrollFrame = requestAnimationFrame(animateStep);
+        } else {
+          wheelScrollFrame = null;
+          if (!sawScroll) finishScroll();
+        }
+      };
+      wheelScrollFrame = requestAnimationFrame(animateStep);
+    };
+
+    const timelineRect = timeline.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const distanceFromCenter = Math.abs(
+      targetRect.top + targetRect.height / 2 - (timelineRect.top + timeline.clientHeight / 2),
+    );
+    if (distanceFromCenter > timeline.clientHeight * 1.5) {
+      // Move close to distant history without animating the entire scroll range,
+      // then smoothly settle the final part with the message centered.
+      timeline.scrollTop = Math.max(0, timeline.scrollTop + targetRect.top - timelineRect.top
+        - timeline.clientHeight * 0.72);
+      requestAnimationFrame(centerTarget);
+    } else {
+      centerTarget();
+    }
     // If the target is already in view, there may be no scroll event to wait for.
     scrollSettleTimeout = setTimeout(() => {
-      if (!sawScroll) finishScroll();
+      if (!sawScroll && wheelScrollFrame === null) finishScroll();
+      else scrollSettleTimeout = null;
     }, 300);
-    ignoreNextGlobalPointerDown = true;
-    queueMicrotask(() => {
-      ignoreNextGlobalPointerDown = false;
-    });
   }
 
   function getPinnedPreviewBody(body: string, messageType?: string | null): string {
@@ -452,45 +514,15 @@
   });
 
   $effect(() => {
-    const onGlobalPointerDown = () => {
-      if (ignoreNextGlobalPointerDown) {
-        return;
-      }
-
-      highlightedMessageElement?.classList.remove("reply-target-highlight");
-      highlightedMessageElement = null;
-      pendingScrollCleanup?.();
-      pendingScrollCleanup = null;
-      if (scrollSettleTimeout) {
-        clearTimeout(scrollSettleTimeout);
-        scrollSettleTimeout = null;
-      }
-      if (highlightTimeout) {
-        clearTimeout(highlightTimeout);
-        highlightTimeout = null;
-      }
-      if (highlightTimeout) {
-        clearTimeout(highlightTimeout);
-        highlightTimeout = null;
-      }
-    };
-
-    window.addEventListener("pointerdown", onGlobalPointerDown, true);
-
-    return () => {
-      window.removeEventListener("pointerdown", onGlobalPointerDown, true);
-      if (jumpUnlockTimer) clearTimeout(jumpUnlockTimer);
-      if (viewportSyncFrame !== null) cancelAnimationFrame(viewportSyncFrame);
-    };
-  });
-
-  $effect(() => {
     return () => {
       if (highlightTimeout) {
         clearTimeout(highlightTimeout);
       }
       pendingScrollCleanup?.();
       if (scrollSettleTimeout) clearTimeout(scrollSettleTimeout);
+      if (wheelScrollFrame !== null) cancelAnimationFrame(wheelScrollFrame);
+      wheelScrollFrame = null;
+      if (jumpUnlockTimer) clearTimeout(jumpUnlockTimer);
       if (viewportSyncFrame !== null) cancelAnimationFrame(viewportSyncFrame);
     };
   });

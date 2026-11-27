@@ -21,6 +21,8 @@
     showAttentionIndicator?: boolean;
     attentionCount?: number;
     attentionJumpRequest?: { eventId: string; nonce: number } | null;
+    messageJumpRequest?: { eventId: string; nonce: number } | null;
+    onMessageJumped?: (eventId: string) => void;
     reactionJumpRequest?: { roomId: string; eventId: string; nonce: number } | null;
     reactionCount?: number;
     onJumpToReaction?: () => void;
@@ -61,7 +63,7 @@
 
   let { 
     messages, 
-    unreadBoundaryId = null, unreadCount = 0, showJumpToLatest = false, showAttentionIndicator = false, attentionCount = 0, attentionJumpRequest = null, onJumpToLatest, onJumpToAttention, onAttentionJumped,
+    unreadBoundaryId = null, unreadCount = 0, showJumpToLatest = false, showAttentionIndicator = false, attentionCount = 0, attentionJumpRequest = null, messageJumpRequest = null, onMessageJumped, onJumpToLatest, onJumpToAttention, onAttentionJumped,
     reactionJumpRequest = null, reactionCount = 0, onJumpToReaction, onReactionJumped,
     roomId, 
     selectedRoomId, 
@@ -136,6 +138,8 @@
       {onTimelineElementChange}
       {onLoadJumpContext}
       {attentionJumpRequest}
+      {messageJumpRequest}
+      {onMessageJumped}
       {onAttentionJumped}
       {reactionJumpRequest}
       {onReactionJumped}
